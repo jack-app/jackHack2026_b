@@ -1,3 +1,5 @@
+"use client";
+
 interface TitleMenuProps {
   onCreateRoom: () => void;
   onJoinRoom: (roomId: string) => void;

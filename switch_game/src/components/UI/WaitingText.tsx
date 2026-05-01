@@ -1,3 +1,5 @@
+"use client";
+
 interface WaitingTextProps {
   isHost: boolean;
   onStartGame: () => void;
