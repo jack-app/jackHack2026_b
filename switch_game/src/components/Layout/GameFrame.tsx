@@ -1,14 +1,16 @@
-import { ReactNode } from "react";
+import TopHeader, { TopHeaderProps } from "./TopHeader";
+import Board, { BoardProps } from "../Map/Board";
 
 interface GameFrameProps {
-  children: ReactNode;
+  topHeaderProps: TopHeaderProps;
+  boardProps?: BoardProps;
 }
 
-export default function GameFrame({ children }: GameFrameProps) {
+export default function GameFrame({ topHeaderProps, boardProps }: GameFrameProps) {
   return (
     <div>
-      {/* TODO: implement */}
-      {children}
+      <TopHeader {...topHeaderProps} />
+      {boardProps && <Board {...boardProps} />}
     </div>
   );
 }
