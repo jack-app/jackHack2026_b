@@ -28,9 +28,12 @@ export function useSocket(
   });
 
   useEffect(() => {
-    const socket = io(process.env.NEXT_PUBLIC_SOCKET_URL || "http://localhost:8000", {
-      transports: ["websocket"],
-    });
+    const socket = io(
+      process.env.NEXT_PUBLIC_SOCKET_URL || "http://localhost:8000",
+      {
+        transports: ["websocket"],
+      },
+    );
     socketRef.current = socket;
 
     socket.on("update_state", (state: GameState) => {
@@ -70,5 +73,12 @@ export function useSocket(
     socketRef.current = null;
   }, []);
 
-  return { socket: socketRef.current, createRoom, joinRoom, startGame, move, disconnect };
+  return {
+    socket: socketRef.current,
+    createRoom,
+    joinRoom,
+    startGame,
+    move,
+    disconnect,
+  };
 }
