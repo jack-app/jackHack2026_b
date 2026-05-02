@@ -1,6 +1,6 @@
 import random
 import copy
-from typing import Union, Dict, List, Tuple
+from typing import Union, Dict, List, Tuple, cast
 from collections import deque
 from app.models import MapData
 
@@ -103,6 +103,9 @@ class _MapGenerator:
                     start_node = (r, c)
                     break
             if start_node: break
+            
+        if start_node is None:
+            return True
         
         visited = {start_node}
         queue = deque([start_node])
@@ -182,7 +185,10 @@ _BASE_GRID, _SWITCHES, _SPAWNS = _default_generator.generate()
 
 # NOTE: 以下を変えたい場合は、教えてください。
 def generate_map() -> MapData:
-    grid: list[list[Union[int, str]]] = copy.deepcopy(_BASE_GRID)
+    grid: list[list[Union[int, str]]] = cast(
+        list[list[Union[int, str]]], 
+        copy.deepcopy(_BASE_GRID)
+    )
     switch_weights: dict[str, int] = {}
     for sid, (x, y, weight) in _SWITCHES.items():
         grid[y][x] = sid
