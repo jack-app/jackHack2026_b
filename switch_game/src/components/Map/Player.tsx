@@ -7,8 +7,8 @@ interface PlayerProps {
 
 export default function Player({ player, isSelf }: PlayerProps) {
   return (
-    <div>
-      {/* TODO: implement with CSS transition (transition-all duration-150) */}
+    <div className="h-10 w-10 bg-red-950">
+      P
     </div>
   );
 }
