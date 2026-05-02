@@ -53,8 +53,11 @@ src/
 │   └── useGameInput.ts  # キーボード入力(WASD/矢印)の監視とmove送信 (100msスロットリング必須)
 └── components/
     ├── Layout/
-    │   ├── GameFrame.tsx    # 画面全体を囲む角ばった無機質なサイバー風の境界線
-    │   └── TopHeader.tsx    # 画面上部固定のHUD（左:TIME LEFT, 中央:STATUS/ID, 右:SCORES）
+    │   ├── GameFrame.tsx       # 画面全体を囲む角ばった無機質なサイバー風の境界線
+    │   ├── TopHeader.tsx       # 画面上部固定のHUDバー。TimeLeft/StatusDisplay/Scoresを内包
+    │   ├── TimeLeft.tsx        # HUD左：残り時間表示。props: timeLeft: number | null
+    │   ├── StatusDisplay.tsx   # HUD中央：ルームIDとゲームステータス表示。props: roomId, status
+    │   └── Scores.tsx          # HUD右：赤・青チームのスコア表示。props: score: {red, blue} | null
     ├── Map/
     │   ├── Board.tsx        # MapDataに基づくグリッド描画基盤 (盤面の背景)
     │   ├── Tile.tsx         # 1マスの描画 (壁、床、スイッチ)
@@ -70,15 +73,15 @@ src/
 全体を `GameFrame` で囲み、その直下に `TopHeader` を常に配置する。
 
 * **状態A (タイトル):** `gameState === null` の場合。
-  * `TopHeader` 表示。ただし「TIME LEFT」と「SCORES」の数値は非表示にし、中央のSTATUS（"MAIN MENU"等）のみ表示。レイアウト崩れを防ぐため左右のコンテナ枠自体は残すこと。
+  * `TopHeader` 表示。`TimeLeft` と `Scores` には `null` を渡して非表示。`StatusDisplay` には `roomId=null, status=null` を渡し "MAIN MENU" 等を表示。レイアウト崩れを防ぐため左右のコンテナ枠自体は残すこと。
   * 中央に `TitleMenu` を表示。
 * **状態B (待機):** `gameState.status === "waiting"` かつ `mapData` が存在する場合。
   * 背景に `Board` を表示（プレイヤーは整列状態）。
-  * `TopHeader` の左右要素は非表示。中央にGAME IDとSTATUS("WAITING")を表示。
+  * `TimeLeft` と `Scores` には `null` を渡して非表示。`StatusDisplay` にGAME IDとSTATUS("WAITING")を表示。
   * 画面中央手前に `WaitingText` と、ホストのみ押下可能な開始ボタンをオーバーレイ表示。
 * **状態C (プレイ):** `gameState.status === "playing"` の場合。
   * 背景に `Board` を表示。
-  * `TopHeader` の左右要素（残り時間、スコア）を表示。
+  * `TimeLeft` と `Scores` にゲーム状態の値を渡して表示。
   * `useGameInput` を有効化。
 * **状態D (リザルト):** `gameState.status === "finished"` の場合。
   * 状態Cの画面を背景に残したまま、手前に `ResultModal` をオーバーレイ表示。

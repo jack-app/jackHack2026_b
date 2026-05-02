@@ -5,6 +5,9 @@ import Link from "next/link";
 const pages = [
   { href: "/dev/gameframe", label: "GameFrame" },
   { href: "/dev/topheader", label: "TopHeader" },
+  { href: "/dev/timeleft", label: "TimeLeft" },
+  { href: "/dev/statusdisplay", label: "StatusDisplay" },
+  { href: "/dev/scores", label: "Scores" },
   { href: "/dev/board", label: "Board" },
   { href: "/dev/tile", label: "Tile" },
   { href: "/dev/player", label: "Player" },
