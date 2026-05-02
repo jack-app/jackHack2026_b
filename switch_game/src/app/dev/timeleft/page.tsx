@@ -10,6 +10,10 @@ export default function DevTimeLeftPage() {
         <p className="mb-2 text-sm text-zinc-400">with value (74s)</p>
         <TimeLeft timeLeft={74} />
       </div>
+      <div className="mb-4 rounded-3xl border border-zinc-700 bg-white/5 p-6">
+        <p className="mb-2 text-sm text-zinc-400">with value (10s)</p>
+        <TimeLeft timeLeft={10} />
+      </div>
       <div className="rounded-3xl border border-zinc-700 bg-white/5 p-6">
         <p className="mb-2 text-sm text-zinc-400">null (hidden)</p>
         <TimeLeft timeLeft={null} />
