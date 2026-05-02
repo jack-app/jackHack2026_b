@@ -1,11 +1,14 @@
 import asyncio
+import os
 import socketio
 from fastapi import FastAPI
 from app.game_manager import GameManager
 from app.models import GameError
 
+_cors_origins = os.environ.get("CORS_ALLOWED_ORIGINS", "http://localhost:3000").split(",")
+
 app = FastAPI()
-sio = socketio.AsyncServer(async_mode="asgi", cors_allowed_origins="*")
+sio = socketio.AsyncServer(async_mode="asgi", cors_allowed_origins=_cors_origins)
 socket_app = socketio.ASGIApp(sio, app)
 
 gm = GameManager()
