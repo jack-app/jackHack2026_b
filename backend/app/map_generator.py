@@ -14,7 +14,7 @@ _SWITCHES: dict[str, tuple[int, int, int]] = {
     "s07": (7, 12, 2),
 }
 
-# NOTE: 構造はそのまま、中身をよしなに変更してください。。
+# NOTE: 構造はそのまま、中身をよしなに変更してください。
 # team -> list of (x, y) spawn positions
 _SPAWNS: dict[str, list[tuple[int, int]]] = {
     "red":  [(1, 1),  (1, 13)],

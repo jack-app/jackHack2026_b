@@ -1,6 +1,6 @@
 # 【プロジェクト全体構成】陣取りアクションゲーム
 
-## リポジトリ構成(Python 3.12 + Node 20)
+## リポジトリ構成(Python 3.10+ + Node 20)
 
 ```text
 jackHack2026_b/
@@ -168,7 +168,7 @@ class GameState(TypedDict):
     score: Dict[str, int]  # {"red": 0, "blue": 0}
 
 class MapData(TypedDict):
-    map: List[List[Union[int, str]]]  # 0:床, 1:壁, "s01":スイッチID
+    map: List[List[Union[int, str]]]  # 0:壁, 1:床, "s01":スイッチID
     switch_weights: Dict[str, int]   # {"s01": 2, ...}
 
 class GameError(Exception):
