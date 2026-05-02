@@ -14,6 +14,9 @@ jackHack2026_b/
 ```bash
 # ターミナル1 — バックエンド (port 8000)
 cd backend
+python3 -m venv .venv  # 初回のみ
+source .venv/bin/activate
+pip install -r requirements.txt
 uvicorn app.main:socket_app --reload --host 0.0.0.0 --port 8000
 
 # ターミナル2 — フロントエンド (port 3000)
