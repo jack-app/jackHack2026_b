@@ -1,3 +1,5 @@
+import Image from "next/image";
+
 interface TileProps {
   cell: number | string;
   switchState?: "red" | "blue" | null;
@@ -5,22 +7,36 @@ interface TileProps {
 }
 
 export default function Tile({ cell, switchState, switchWeight }: TileProps) {
-  
-  if (cell === 0) {
-    return (
-      <div className="h-10 w-10 bg-blue-950">
-        W
-      </div>
-    );
-  }
-  if (cell === 1) return (
-    <div className="h-10 w-10 bg-green-950">
-      F
+// 壁
+  if (cell ===  0)return(
+    <div
+  className="bg-stone-400 w-10 h-10"
+    >
+     <Image
+      src="/PikPng.com_crack-png_3016889.png"
+      width={50}
+      height={10}
+      alt=""
+     />
+   </div>
+
+  )
+
+// 床
+  if (cell===1)return(
+    <div className="w-10 h-10 border border-slate-500">
     </div>
-  );
+  )
+
+
+// スイッチ
   return (
-    <div className="h-10 w-10 bg-purple-950">
-      S
-    </div>
-  );
+    <div className="w-10 h-10 bg-green-400">
+      {/* TODO: implement - 0: wall, 1: floor, "sXX": switch */}
+
+        
+      </div>
+      )
+
+  
 }
