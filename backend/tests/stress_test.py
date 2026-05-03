@@ -37,12 +37,17 @@ except ImportError:
     )
     sys.exit(1)
 
+import os
+
 import redis.asyncio as aioredis
 import socketio
+from dotenv import load_dotenv
+
+load_dotenv()  # .env から REDIS_URL を読み込む（アプリと同じ接続先を使うため）
 
 # ── 設定 ──────────────────────────────────────────────────────────
 SERVER_URL = sys.argv[1] if len(sys.argv) > 1 else "http://localhost:8000"
-REDIS_URL  = sys.argv[2] if len(sys.argv) > 2 else "redis://localhost:6379"
+REDIS_URL  = sys.argv[2] if len(sys.argv) > 2 else os.environ.get("REDIS_URL", "redis://localhost:6379")
 
 # ANSI カラー
 _G = "\033[92m"; _R = "\033[91m"; _Y = "\033[93m"
