@@ -1,12 +1,12 @@
-import { GameState, MapData } from "@/types/game";
+import { MapData, Player } from "@/types/game";
 
-interface BoardProps {
+export interface BoardProps {
   mapData: MapData;
-  gameState: GameState;
-  socketId: string | undefined;
+  myPlayer: Player;
+  otherPlayers: Player[];
 }
 
-export default function Board({ mapData, gameState, socketId }: BoardProps) {
+export default function Board(_props?: BoardProps) {
   return (
     <div>
       {/* TODO: implement grid rendering */}
