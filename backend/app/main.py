@@ -50,11 +50,18 @@ async def _tick_loop() -> None:
 
     tick gate (SET NX PX 900) により、同じルームを複数ワーカーが
     同一秒に二重 tick しないことを保証する。
+
+    playing_rooms が空のとき自己停止する。次の start_game で _ensure_tick_loop() が再起動する。
     """
+    global _tick_task
     while True:
         await asyncio.sleep(1)
 
         playing_rooms = await store.get_playing_rooms()
+        if not playing_rooms:
+            _tick_task = None
+            return
+
         for room_id in playing_rooms:
             # tick 権を原子的に取得（他がすでに取得済みならスキップ）
             claimed = await store.client.set(

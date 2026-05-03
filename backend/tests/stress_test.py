@@ -587,6 +587,34 @@ async def test_host_promotion() -> None:
         await cb.disconnect()
 
 
+# ── TEST 5: Redis クリーンアップ検証 ─────────────────────────────
+
+async def test_redis_cleanup() -> None:
+    """
+    全テスト後に playing_rooms が空か確認する。
+    空でなければ残留ルームを強制削除し、tick ループが自己停止できる状態にする。
+    """
+    section("TEST 5: Redis クリーンアップ検証")
+    info("全クライアント切断後に playing_rooms が空になるか確認")
+
+    # サーバーが disconnect イベントを処理するまで待機
+    await asyncio.sleep(2.0)
+
+    r = aioredis.from_url(REDIS_URL, decode_responses=True)
+    try:
+        playing_rooms = await r.smembers("playing_rooms")
+        if not playing_rooms:
+            ok("playing_rooms が空 → tick ループは次回空検知時に自己停止する")
+        else:
+            ng(f"playing_rooms に残留ルームあり: {playing_rooms}")
+            info("残留ルームを強制クリーンアップします...")
+            for room_id in playing_rooms:
+                await r.srem("playing_rooms", room_id)
+            ok(f"{len(playing_rooms)} 件の残留ルームをクリーンアップしました")
+    finally:
+        await r.aclose()
+
+
 # ── メイン ────────────────────────────────────────────────────────
 
 async def main() -> bool:
@@ -617,6 +645,7 @@ async def main() -> bool:
         await test_countdown_idempotency()
         await test_race_conditions()
         await test_host_promotion()
+        await test_redis_cleanup()
     except KeyboardInterrupt:
         print(f"\n{_Y}テストを中断しました{_X}")
 
