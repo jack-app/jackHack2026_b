@@ -6,19 +6,22 @@ from app.models import MapData
 
 class _MapGenerator:
     """
-    マップ、スイッチ、スポーン地点を生成するクラス。
+    マップ、スイッチ、スポーン、アイテム地点を生成するクラス。
     """
-    def __init__(self, size: int = 15, wall_ratio: float = 0.2, switch_ratio: float = 0.05):
-        self.size = size # マップサイズ
+    def __init__(self, width: int = 21, height: int = 11, wall_ratio: float = 0.3, switch_ratio: float = 0.09, item_ratio: float = 0.05):
+        self.width = width   # マップの横幅(x軸)
+        self.height = height # マップの縦幅(y軸)
         self.wall_ratio = wall_ratio # マップに対する壁の割合
         self.switch_ratio = switch_ratio # マップに対するスイッチの割合
+        self.item_ratio = item_ratio # マップに対するアイテムの割合
         
         # 内部状態の初期化
         self.map_data = [] # マップの地形（壁=1, 床=0）を2次元配列で保持
         self.switches_dict = {} # 各スイッチの座標(x, y)と獲得点数を保持
+        self.items_dict = {} # 各アイテムの座標(x, y)と種類？を保持
         # (x, y) 形式で定義
-        self.red_spawns = [(1, 1), (1, size - 2), (1, size // 2)]
-        self.blue_spawns = [(size - 2, size - 2), (size - 2, 1), (size - 2, size // 2)]
+        self.red_spawns = [(1, 1), (1, self.height - 2), (1, self.height // 2)]
+        self.blue_spawns = [(self.width - 2, self.height - 2), (self.width - 2, 1), (self.width - 2, self.height - 1 - (self.height // 2))]
         self.safe_zones = self._calculate_safe_zones()
 
     def _calculate_safe_zones(self) -> set:
@@ -32,38 +35,43 @@ class _MapGenerator:
     def generate(self) -> Tuple[List[List[int]], Dict, Dict]:
         """
         マップ生成のメインフローを実行します。
-        戻り値: (base_grid, switches_dict, spawns_dict)
+        戻り値: (base_grid, switches_dict, spawns_dict, items_dict)
         """
         self._initialize_empty_map()
         self._place_walls()
         self._place_switches()
+        self._place_items()
         
         spawns_dict = {
             "red": self.red_spawns,
             "blue": self.blue_spawns
         }
-        return self.map_data, self.switches_dict, spawns_dict
+        return self.map_data, self.switches_dict, spawns_dict, self.items_dict
 
     def _initialize_empty_map(self):
         """外枠（壁）のみを持つ空のグリッドを作成"""
-        self.map_data = [[0 for _ in range(self.size)] for _ in range(self.size)]
-        for i in range(self.size):
-            self.map_data[0][i] = 1      
-            self.map_data[self.size-1][i] = 1    
-            self.map_data[i][0] = 1
-            self.map_data[i][self.size-1] = 1
+        self.map_data = [[0 for _ in range(self.width)] for _ in range(self.height)]
+        # 上下の壁
+        for x in range(self.width):
+            self.map_data[0][x] = 1      
+            self.map_data[self.height - 1][x] = 1    
+            
+        # 左右の壁
+        for y in range(self.height):
+            self.map_data[y][0] = 1
+            self.map_data[y][self.width - 1] = 1
 
     def _place_walls(self):
         """指定された割合まで、点対称かつ連結性を維持して壁を配置"""
-        num_walls = int(self.size * self.size * self.wall_ratio) 
+        num_walls = int(self.width * self.height * self.wall_ratio) 
         placed_walls = 0
         attempts = 0
         
         while placed_walls < num_walls and attempts < 1000:
             attempts += 1
-            y = random.randint(1, self.size - 2)
-            x = random.randint(1, self.size // 2) 
-            sym_y, sym_x = self.size - 1 - y, self.size - 1 - x
+            y = random.randint(1, self.height - 2)
+            x = random.randint(1, self.width // 2) 
+            sym_y, sym_x = self.height - 1 - y, self.width - 1 - x
             
             if self.map_data[y][x] == 1 or (y, x) in self.safe_zones or (sym_y, sym_x) in self.safe_zones:
                 continue
@@ -83,7 +91,7 @@ class _MapGenerator:
         """(y, x) 周辺に 2x2 の壁ブロックができていないか確認"""
         for dy, dx in [(0, 0), (0, -1), (-1, 0), (-1, -1)]:
             ny, nx = y + dy, x + dx
-            if ny < 0 or ny + 1 >= self.size or nx < 0 or nx + 1 >= self.size:
+            if ny < 0 or ny + 1 >= self.height or nx < 0 or nx + 1 >= self.width:
                 continue
             if (self.map_data[ny][nx] == 1 and self.map_data[ny][nx + 1] == 1 and
                 self.map_data[ny + 1][nx] == 1 and self.map_data[ny + 1][nx + 1] == 1):
@@ -97,8 +105,8 @@ class _MapGenerator:
         
         # 最初の床を探す
         start_node = None
-        for r in range(self.size):
-            for c in range(self.size):
+        for r in range(self.height):
+            for c in range(self.width):
                 if self.map_data[r][c] == 0:
                     start_node = (r, c)
                     break
@@ -115,7 +123,7 @@ class _MapGenerator:
             cy, cx = queue.popleft()
             for dy, dx in [(0, 1), (0, -1), (1, 0), (-1, 0)]:
                 ny, nx = cy + dy, cx + dx
-                if (0 <= ny < self.size and 0 <= nx < self.size and 
+                if (0 <= ny < self.height and 0 <= nx < self.width and 
                     self.map_data[ny][nx] == 0 and (ny, nx) not in visited):
                     visited.add((ny, nx))
                     queue.append((ny, nx))
@@ -124,14 +132,20 @@ class _MapGenerator:
 
     def _place_switches(self):
         """点対称にスイッチを配置"""
-        switch_num = int(self.size * self.size * self.switch_ratio) 
-        if switch_num % 2 == 0:
-            switch_num -= 1
+        switch_num = int(self.width * self.height * self.switch_ratio) 
+        if self.width % 2 == 0 or self.height % 2 == 0:
+            # 縦横のどちらかが偶数の場合、中央マスが存在しないため強制的に偶数個にする
+            if switch_num % 2 != 0:
+                switch_num -= 1
+        else:
+            # 縦横ともに奇数の場合は、中央マスが存在するため奇数個（中央に1つ配置）にする
+            if switch_num % 2 == 0:
+                switch_num -= 1
 
         self.switches_dict = {}
         valid_coords = []
-        for r in range(1, self.size - 1):
-            for c in range(1, self.size - 1):
+        for r in range(1, self.height - 1):
+            for c in range(1, self.width - 1):
                 if (self.map_data[r][c] == 0 and 
                     (c, r) not in self.red_spawns and 
                     (c, r) not in self.blue_spawns):
@@ -141,25 +155,26 @@ class _MapGenerator:
 
         # 中央スイッチの配置
         if switch_num % 2 != 0:
-            center = self.size // 2
-            if (center, center) in valid_coords:
+            center_y = self.height // 2
+            center_x = self.width // 2
+            if (center_y, center_x) in valid_coords:
                 sid = f"s{counter:02}"
-                self.switches_dict[sid] = (center, center, 5) # (x, y, weight)
+                self.switches_dict[sid] = (center_x, center_y, 1) # (x, y, weight)
                 counter += 1
                 switch_num -= 1
-                valid_coords.remove((center, center))
+                valid_coords.remove((center_y, center_x))
 
         attempts = 0
         while switch_num > 0 and len(valid_coords) >= 2 and attempts < 1000:
             attempts += 1
             y, x = random.choice(valid_coords)
-            sy, sx = self.size - 1 - y, self.size - 1 - x 
+            sy, sx = self.height - 1 - y, self.width - 1 - x 
             
             if (sy, sx) in valid_coords and (y, x) != (sy, sx):
                 if abs(y - sy) <= 1 and abs(x - sx) <= 1: continue
                 if self._has_adjacent_switch(y, x): continue
 
-                score = random.randint(1, 3) 
+                score = 1 # 点数を1で固定 
                 
                 # ペアで配置
                 for pos_y, pos_x in [(y, x), (sy, sx)]:
@@ -176,11 +191,55 @@ class _MapGenerator:
             if abs(sy - y) <= 1 and abs(sx - x) <= 1:
                 return True
         return False
+    
+    def _place_items(self):
+        """ランダムに（アイテム同士が隣接しないように）アイテムを配置"""
+        item_num = int(self.width * self.height * self.item_ratio)
+        self.items_dict = {}
+        
+        valid_coords = []
+        switch_coords = [(x, y) for x, y, _ in self.switches_dict.values()]
+
+        for r in range(1, self.height - 1):
+            for c in range(1, self.width - 1):
+                # 床であり、スポーンやスイッチの場所ではないこと
+                if (self.map_data[r][c] == 0 and 
+                    (c, r) not in self.red_spawns and 
+                    (c, r) not in self.blue_spawns and
+                    (c, r) not in switch_coords):
+                    valid_coords.append((r, c))
+
+        counter = 1
+        attempts = 0
+        
+        while item_num > 0 and len(valid_coords) > 0 and attempts < 1000:
+            attempts += 1
+            y, x = random.choice(valid_coords)
+            
+            if self._has_adjacent_item(y, x):
+                continue
+                
+            # 例として blind か reverse か jump をランダムで割り当て
+            item_type = random.choice(["blind", "reverse", "jump"])
+            
+            i_id = f"i{counter:02}"
+            self.items_dict[i_id] = (x, y, item_type)
+            counter += 1
+            item_num -= 1
+            
+            valid_coords.remove((y, x))
+
+    def _has_adjacent_item(self, y: int, x: int) -> bool:
+        """指定座標の周囲1マス(斜め含む)に既にアイテムがあるか確認"""
+        for i_id, (ix, iy, _) in self.items_dict.items():
+            if abs(iy - y) <= 1 and abs(ix - x) <= 1:
+                return True
+        return False
 
 
 # デフォルト設定での生成器
-_default_generator = _MapGenerator(size=15)
-_BASE_GRID, _SWITCHES, _SPAWNS = _default_generator.generate()
+_default_generator = _MapGenerator(width=21, height=11)
+_BASE_GRID, _SWITCHES, _SPAWNS, _ITEMS = _default_generator.generate()
 
 
 # NOTE: 以下を変えたい場合は、教えてください。
