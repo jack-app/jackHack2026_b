@@ -7,7 +7,7 @@ interface PlayerProps {
 
 export default function Player({ player, isSelf }: PlayerProps) {
   return (
-    <div className="h-10 w-10 bg-red-950">
+    <div className="h-7 w-7 bg-red-950">
       P
     </div>
   );
