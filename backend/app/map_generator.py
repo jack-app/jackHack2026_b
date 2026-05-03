@@ -6,17 +6,19 @@ from app.models import MapData
 
 class _MapGenerator:
     """
-    マップ、スイッチ、スポーン地点を生成するクラス。
+    マップ、スイッチ、スポーン、アイテム地点を生成するクラス。
     """
-    def __init__(self, width: int = 21, height: int = 11, wall_ratio: float = 0.3, switch_ratio: float = 0.09):
+    def __init__(self, width: int = 21, height: int = 11, wall_ratio: float = 0.3, switch_ratio: float = 0.09, item_ratio: float = 0.05):
         self.width = width   # マップの横幅(x軸)
         self.height = height # マップの縦幅(y軸)
         self.wall_ratio = wall_ratio # マップに対する壁の割合
         self.switch_ratio = switch_ratio # マップに対するスイッチの割合
+        self.item_ratio = item_ratio # マップに対するアイテムの割合
         
         # 内部状態の初期化
         self.map_data = [] # マップの地形（壁=1, 床=0）を2次元配列で保持
         self.switches_dict = {} # 各スイッチの座標(x, y)と獲得点数を保持
+        self.items_dict = {} # 各アイテムの座標(x, y)と種類？を保持
         # (x, y) 形式で定義
         self.red_spawns = [(1, 1), (1, self.height - 2), (1, self.height // 2)]
         self.blue_spawns = [(self.width - 2, self.height - 2), (self.width - 2, 1), (self.width - 2, self.height - 1 - (self.height // 2))]
@@ -33,17 +35,18 @@ class _MapGenerator:
     def generate(self) -> Tuple[List[List[int]], Dict, Dict]:
         """
         マップ生成のメインフローを実行します。
-        戻り値: (base_grid, switches_dict, spawns_dict)
+        戻り値: (base_grid, switches_dict, spawns_dict, items_dict)
         """
         self._initialize_empty_map()
         self._place_walls()
         self._place_switches()
+        self._place_items()
         
         spawns_dict = {
             "red": self.red_spawns,
             "blue": self.blue_spawns
         }
-        return self.map_data, self.switches_dict, spawns_dict
+        return self.map_data, self.switches_dict, spawns_dict, self.items_dict
 
     def _initialize_empty_map(self):
         """外枠（壁）のみを持つ空のグリッドを作成"""
@@ -188,11 +191,55 @@ class _MapGenerator:
             if abs(sy - y) <= 1 and abs(sx - x) <= 1:
                 return True
         return False
+    
+    def _place_items(self):
+        """ランダムに（アイテム同士が隣接しないように）アイテムを配置"""
+        item_num = int(self.width * self.height * self.item_ratio)
+        self.items_dict = {}
+        
+        valid_coords = []
+        switch_coords = [(x, y) for x, y, _ in self.switches_dict.values()]
+
+        for r in range(1, self.height - 1):
+            for c in range(1, self.width - 1):
+                # 床であり、スポーンやスイッチの場所ではないこと
+                if (self.map_data[r][c] == 0 and 
+                    (c, r) not in self.red_spawns and 
+                    (c, r) not in self.blue_spawns and
+                    (c, r) not in switch_coords):
+                    valid_coords.append((r, c))
+
+        counter = 1
+        attempts = 0
+        
+        while item_num > 0 and len(valid_coords) > 0 and attempts < 1000:
+            attempts += 1
+            y, x = random.choice(valid_coords)
+            
+            if self._has_adjacent_item(y, x):
+                continue
+                
+            # 例として blind か reverse か jump をランダムで割り当て
+            item_type = random.choice(["blind", "reverse", "jump"])
+            
+            i_id = f"i{counter:02}"
+            self.items_dict[i_id] = (x, y, item_type)
+            counter += 1
+            item_num -= 1
+            
+            valid_coords.remove((y, x))
+
+    def _has_adjacent_item(self, y: int, x: int) -> bool:
+        """指定座標の周囲1マス(斜め含む)に既にアイテムがあるか確認"""
+        for i_id, (ix, iy, _) in self.items_dict.items():
+            if abs(iy - y) <= 1 and abs(ix - x) <= 1:
+                return True
+        return False
 
 
 # デフォルト設定での生成器
 _default_generator = _MapGenerator(width=21, height=11)
-_BASE_GRID, _SWITCHES, _SPAWNS = _default_generator.generate()
+_BASE_GRID, _SWITCHES, _SPAWNS, _ITEMS = _default_generator.generate()
 
 
 # NOTE: 以下を変えたい場合は、教えてください。
