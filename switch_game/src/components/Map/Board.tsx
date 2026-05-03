@@ -7,6 +7,7 @@ export interface BoardProps {
   myPlayer: Player;
   otherPlayers: Player[];
   switches?: Record<string, "red" | "blue" | null>;
+  isBlined?: boolean;
 }
 
 const TILE_SIZE = 40;
@@ -16,6 +17,7 @@ export default function Board({
   myPlayer,
   otherPlayers,
   switches,
+  isBlined = false,
 }: BoardProps) {
   const cols = mapData.map[0].length;
 
@@ -57,7 +59,7 @@ export default function Board({
             height: TILE_SIZE,
           }}
         >
-          <PlayerComponent player={player} isSelf={false} />
+          <PlayerComponent player={player} isBlined={false} />
         </div>
       ))}
 
@@ -71,8 +73,18 @@ export default function Board({
           height: TILE_SIZE,
         }}
       >
-        <PlayerComponent player={myPlayer} isSelf={true} />
+        <PlayerComponent player={myPlayer} isBlined={isBlined} />
       </div>
+
+      {/* フォグオーバーレイ: 自分の周囲2マス以外を黒で覆う */}
+      {isBlined && (
+        <div
+          className="absolute inset-0 pointer-events-none"
+          style={{
+            background: `radial-gradient(circle at ${myPlayer.x * TILE_SIZE + TILE_SIZE / 2}px ${myPlayer.y * TILE_SIZE + TILE_SIZE / 2}px, transparent 60px, rgba(0,0,0,0.97) 100px)`,
+          }}
+        />
+      )}
     </div>
   );
 }

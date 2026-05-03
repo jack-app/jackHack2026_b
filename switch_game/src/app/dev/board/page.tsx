@@ -45,6 +45,8 @@ export default function DevBoardPage() {
           mapData={sampleMapData}
           myPlayer={myPlayer}
           otherPlayers={otherPlayers}
+          switches={{ s01: null, s02: null, s03: null }}
+          isBlined={false}
         />
       </div>
     </main>

@@ -8,7 +8,7 @@ interface TileProps {
 
 export default function Tile({ cell, switchState, switchWeight }: TileProps) {
   // 壁
-  if (cell === 0)
+  if (cell === 1)
     return (
       <div className="bg-stone-400 w-10 h-10">
         <Image
@@ -21,7 +21,7 @@ export default function Tile({ cell, switchState, switchWeight }: TileProps) {
     );
 
   // 床
-  if (cell === 1)
+  if (cell === 0)
     return <div className="w-10 h-10 border border-slate-500"></div>;
 
   // スイッチ赤
