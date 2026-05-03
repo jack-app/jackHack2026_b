@@ -1,8 +1,8 @@
 import random
 import copy
-from typing import Union, Dict, List, Tuple, cast
+from typing import Literal, Union, Dict, List, Tuple, cast
 from collections import deque
-from app.models import MapData
+from app.models import Item, MapData
 
 class _MapGenerator:
     """
@@ -32,7 +32,7 @@ class _MapGenerator:
                 zones.add((sy + dy, sx + dx))
         return zones
 
-    def generate(self) -> Tuple[List[List[int]], Dict, Dict]:
+    def generate(self) -> Tuple[List[List[int]], Dict, Dict, Dict]:
         """
         マップ生成のメインフローを実行します。
         戻り値: (base_grid, switches_dict, spawns_dict, items_dict)
@@ -193,45 +193,36 @@ class _MapGenerator:
         return False
     
     def _place_items(self):
-        """ランダムに（アイテム同士が隣接しないように）アイテムを配置"""
-        item_num = int(self.width * self.height * self.item_ratio)
+        """blind / reverse / jump を各1個、互いに隣接しない床タイルに配置"""
+        item_types = ["blind", "reverse", "jump"]
         self.items_dict = {}
-        
-        valid_coords = []
-        switch_coords = [(x, y) for x, y, _ in self.switches_dict.values()]
 
+        switch_coords = {(x, y) for x, y, _ in self.switches_dict.values()}
+        valid_coords = []
         for r in range(1, self.height - 1):
             for c in range(1, self.width - 1):
-                # 床であり、スポーンやスイッチの場所ではないこと
-                if (self.map_data[r][c] == 0 and 
-                    (c, r) not in self.red_spawns and 
-                    (c, r) not in self.blue_spawns and
-                    (c, r) not in switch_coords):
+                if (self.map_data[r][c] == 0
+                        and (c, r) not in self.red_spawns
+                        and (c, r) not in self.blue_spawns
+                        and (c, r) not in switch_coords):
                     valid_coords.append((r, c))
 
-        counter = 1
-        attempts = 0
-        
-        while item_num > 0 and len(valid_coords) > 0 and attempts < 1000:
-            attempts += 1
-            y, x = random.choice(valid_coords)
-            
-            if self._has_adjacent_item(y, x):
-                continue
-                
-            # 例として blind か reverse か jump をランダムで割り当て
-            item_type = random.choice(["blind", "reverse", "jump"])
-            
-            i_id = f"i{counter:02}"
-            self.items_dict[i_id] = (x, y, item_type)
-            counter += 1
-            item_num -= 1
-            
+        placed: list[tuple[int, int]] = []
+        for i, item_type in enumerate(item_types, start=1):
+            candidates = [
+                (r, c) for r, c in valid_coords
+                if all(abs(r - pr) > 1 or abs(c - pc) > 1 for pr, pc in placed)
+            ]
+            if not candidates:
+                break
+            y, x = random.choice(candidates)
+            self.items_dict[f"i{i:02}"] = (x, y, item_type)
+            placed.append((y, x))
             valid_coords.remove((y, x))
 
     def _has_adjacent_item(self, y: int, x: int) -> bool:
         """指定座標の周囲1マス(斜め含む)に既にアイテムがあるか確認"""
-        for i_id, (ix, iy, _) in self.items_dict.items():
+        for _i_id, (ix, iy, _) in self.items_dict.items():
             if abs(iy - y) <= 1 and abs(ix - x) <= 1:
                 return True
         return False
@@ -258,3 +249,39 @@ def generate_map() -> MapData:
 def get_spawn_position(team: str, index: int) -> tuple[int, int]:
     spawns = _SPAWNS.get(team, [(1, 1)])
     return spawns[index % len(spawns)]
+
+
+_ITEM_NAMES: list[Literal["blind", "reverse", "jump"]] = ["blind", "reverse", "jump"]
+
+
+def get_initial_items() -> list[Item]:
+    """ルーム作成時に呼ぶ。blind/reverse/jump を各1個ランダムな床タイルに配置して返す。
+
+    _BASE_GRID は全ルーム共通の静的マップなので、ルームごとに独立した乱数で位置を決める。
+    """
+    switch_coords = {(x, y) for x, y, _ in _SWITCHES.values()}
+    spawn_coords = set(_SPAWNS.get("red", [])) | set(_SPAWNS.get("blue", []))
+
+    height = len(_BASE_GRID)
+    width = len(_BASE_GRID[0]) if height > 0 else 0
+    valid: list[tuple[int, int]] = []
+    for y in range(1, height - 1):
+        for x in range(1, width - 1):
+            if (_BASE_GRID[y][x] == 0
+                    and (x, y) not in switch_coords
+                    and (x, y) not in spawn_coords):
+                valid.append((x, y))
+
+    positions: list[tuple[int, int]] = []
+    for _ in _ITEM_NAMES:
+        candidates = [
+            pos for pos in valid
+            if all(abs(pos[1] - p[1]) > 1 or abs(pos[0] - p[0]) > 1 for p in positions)
+        ]
+        if not candidates:
+            break
+        chosen = random.choice(candidates)
+        positions.append(chosen)
+        valid.remove(chosen)
+
+    return [Item(name=name, x=x, y=y) for name, (x, y) in zip(_ITEM_NAMES, positions)]
