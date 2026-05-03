@@ -1,7 +1,7 @@
 "use client";
 
 import Board from "@/components/Map/Board";
-import { GameState, MapData } from "@/types/game";
+import { MapData, Player } from "@/types/game";
 
 const sampleMapData: MapData = {
   map: [
@@ -17,32 +17,35 @@ const sampleMapData: MapData = {
   },
 };
 
-const sampleGameState: GameState = {
-  room_id: "ROOM123",
-  status: "waiting",
-  host: "socket-123",
-  players: {
-    "socket-123": { team: "red", x: 1, y: 1 },
-    "socket-456": { team: "blue", x: 3, y: 2 },
-  },
-  time_left: 120,
-  switches: {
-    s01: "red",
-    s02: "blue",
-    s03: null,
-  },
-  score: {
-    red: 2,
-    blue: 1,
-  },
+const myPlayer:Player = {
+  team: "red",
+  x: 1,
+  y: 1,
 };
+
+const otherPlayers: Player[] = [
+  {
+    team: "blue",
+    x: 3,
+    y: 0,
+  },
+  {
+    team: "red",
+    x: 0,
+    y: 3,
+  },
+];
 
 export default function DevBoardPage() {
   return (
     <main className="min-h-screen bg-zinc-950 text-white p-8">
       <h1 className="mb-6 text-3xl font-semibold">Board Preview</h1>
       <div className="rounded-3xl border border-zinc-700 bg-white/5 p-6">
-        <Board mapData={sampleMapData} gameState={sampleGameState} socketId="socket-123" />
+        <Board
+          mapData={sampleMapData}
+          myPlayer={myPlayer}
+          otherPlayers={otherPlayers}
+        />
       </div>
     </main>
   );
