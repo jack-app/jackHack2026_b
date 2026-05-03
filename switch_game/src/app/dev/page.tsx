@@ -14,6 +14,7 @@ const pages = [
   { href: "/dev/titlemenu", label: "TitleMenu" },
   { href: "/dev/waitingtext", label: "WaitingText" },
   { href: "/dev/resultmodal", label: "ResultModal" },
+  { href: "/dev/item", label: "Item" },
 ];
 
 export default function DevIndex() {
@@ -21,7 +22,9 @@ export default function DevIndex() {
     <main className="min-h-screen bg-zinc-950 text-white">
       <div className="mx-auto max-w-3xl p-8">
         <h1 className="mb-6 text-4xl font-semibold">Component Preview</h1>
-        <p className="mb-6 text-zinc-300">Use these pages to render each component in isolation.</p>
+        <p className="mb-6 text-zinc-300">
+          Use these pages to render each component in isolation.
+        </p>
         <div className="grid gap-4 sm:grid-cols-2">
           {pages.map((page) => (
             <Link

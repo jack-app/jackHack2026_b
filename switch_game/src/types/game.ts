@@ -21,3 +21,12 @@ export interface MapData {
   map: (number | string)[][];
   switch_weights: Record<string, number>;
 }
+
+export type ItemType = "reverse" | "blinded" | "jump";
+
+export interface ItemData {
+  id: string;
+  type: ItemType;
+  x: number;
+  y: number;
+}

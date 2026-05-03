@@ -1,9 +1,12 @@
 import asyncio
 import os
 import socketio
+from dotenv import load_dotenv
 from fastapi import FastAPI
 from app.game_manager import GameManager
 from app.models import GameError
+
+load_dotenv()
 
 _cors_origins = os.environ.get("CORS_ALLOWED_ORIGINS", "http://localhost:3000").split(",")
 
