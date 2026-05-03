@@ -1,4 +1,4 @@
-interface TimeLeftProps {
+export interface TimeLeftProps {
   timeLeft: number | null;
 }
 

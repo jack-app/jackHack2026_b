@@ -27,7 +27,7 @@ export default function DevTopHeaderPage() {
     <main className="min-h-screen bg-zinc-950 text-white p-8">
       <h1 className="mb-6 text-3xl font-semibold">TopHeader Preview</h1>
       <div className="rounded-3xl border border-zinc-700 bg-white/5 p-6">
-        <TopHeader gameState={sampleGameState} />
+        <TopHeader timeLeft={sampleGameState.time_left} roomId={sampleGameState.room_id} status={sampleGameState.status} score={sampleGameState.score} />
       </div>
     </main>
   );
