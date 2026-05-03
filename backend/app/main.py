@@ -7,7 +7,7 @@ from dotenv import load_dotenv
 from fastapi import FastAPI
 
 from app.game_manager import GameManager
-from app.models import GameError
+from app.models import GameError, GameState
 from app.redis_store import RedisStore
 
 load_dotenv()
@@ -30,6 +30,33 @@ socket_app = socketio.ASGIApp(sio, app)
 
 gm = GameManager(store)
 
+
+def _to_client_state(state: GameState) -> dict:
+    """item_respawn_queue と PlayerStatus の *_until タイムスタンプを除外してクライアント向けに変換する。"""
+    return {
+        "room_id": state["room_id"],
+        "status": state["status"],
+        "host": state["host"],
+        "players": {
+            sid: {
+                "team": p["team"],
+                "x": p["x"],
+                "y": p["y"],
+                "status": {
+                    "blinded": p["status"]["blinded"],
+                    "reversed": p["status"]["reversed"],
+                    "can_jump": p["status"]["can_jump"],
+                },
+            }
+            for sid, p in state["players"].items()
+        },
+        "items": state["items"],
+        "time_left": state["time_left"],
+        "switches": state["switches"],
+        "score": state["score"],
+    }
+
+
 # Fix 1: tick ループタスクの参照（再起動判定用）
 _tick_task: asyncio.Task | None = None
 
@@ -50,11 +77,18 @@ async def _tick_loop() -> None:
 
     tick gate (SET NX PX 900) により、同じルームを複数ワーカーが
     同一秒に二重 tick しないことを保証する。
+
+    playing_rooms が空のとき自己停止する。次の start_game で _ensure_tick_loop() が再起動する。
     """
+    global _tick_task
     while True:
         await asyncio.sleep(1)
 
         playing_rooms = await store.get_playing_rooms()
+        if not playing_rooms:
+            _tick_task = None
+            return
+
         for room_id in playing_rooms:
             # tick 権を原子的に取得（他がすでに取得済みならスキップ）
             claimed = await store.client.set(
@@ -75,7 +109,7 @@ async def _tick_loop() -> None:
                 await store.remove_playing_room(room_id)
                 continue
 
-            await sio.emit("update_state", state, room=room_id)
+            await sio.emit("update_state", _to_client_state(state), room=room_id)
             if state["status"] == "finished":
                 await store.remove_playing_room(room_id)
 
@@ -93,7 +127,7 @@ async def create_room(sid: str, data: dict) -> None:
     room_id, state, map_data = await gm.create_room(sid)
     await sio.enter_room(sid, room_id)
     await sio.emit("map", map_data, to=sid)
-    await sio.emit("update_state", state, to=sid)
+    await sio.emit("update_state", _to_client_state(state), to=sid)
 
 
 @sio.event
@@ -106,7 +140,7 @@ async def join_room(sid: str, data: dict) -> None:
         return
     await sio.enter_room(sid, state["room_id"])
     await sio.emit("map", map_data, to=sid)
-    await sio.emit("update_state", state, room=state["room_id"])
+    await sio.emit("update_state", _to_client_state(state), room=state["room_id"])
 
 
 @sio.event
@@ -123,7 +157,7 @@ async def start_game(sid: str, data: dict) -> None:
 
     # start_game 内で playing_rooms に追加済み。tick ループが生きていることを確認。
     _ensure_tick_loop()
-    await sio.emit("update_state", state, room=room_id)
+    await sio.emit("update_state", _to_client_state(state), room=room_id)
 
 
 @sio.event
@@ -141,7 +175,7 @@ async def move(sid: str, data: dict) -> None:
     # tick ループ生存確認（ワーカー再起動後の初回 move で回復）
     if state["status"] == "playing":
         _ensure_tick_loop()
-    await sio.emit("update_state", state, room=room_id)
+    await sio.emit("update_state", _to_client_state(state), room=room_id)
 
 
 @sio.event
@@ -150,5 +184,5 @@ async def disconnect(sid: str) -> None:
     if room_id is None:
         return
     if state:
-        await sio.emit("update_state", state, room=room_id)
+        await sio.emit("update_state", _to_client_state(state), room=room_id)
     await sio.leave_room(sid, room_id)
