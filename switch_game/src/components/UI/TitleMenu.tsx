@@ -1,11 +1,15 @@
 "use client";
 
+import { useState } from "react";
+
 interface TitleMenuProps {
   onCreateRoom: () => void;
   onJoinRoom: (roomId: string) => void;
 }
 
-export default function TitleMenu(_props: TitleMenuProps) {
+export default function TitleMenu({ onCreateRoom, onJoinRoom }: TitleMenuProps) {
+  const [roomId, setRoomId] = useState("");
+
   return (
     <div className="flex flex-col items-center justify-center border border-white-25 bg-[#0d1220] p-10 w-full max-w-xl gap-4">
         <div className='text-5xl text-[oklch(90.1%_0.058_230.902)]' style={{textShadow: '0 0 10px rgba(100,200,255,0.8), 0 0 30px rgba(100,200,255,0.5)'}}>
@@ -25,6 +29,7 @@ export default function TitleMenu(_props: TitleMenuProps) {
             ✦
           </span>
           <button
+            onClick={onCreateRoom}
             className="text-2xl text-white px-8 py-2 w-full"
             style={{
               clipPath: 'polygon(0 0, calc(100% - 12px) 0, 100% 12px, 100% 100%, 12px 100%, 0 calc(100% - 12px))',
@@ -60,6 +65,7 @@ export default function TitleMenu(_props: TitleMenuProps) {
             ✦
           </span>
           <button
+            onClick={() => { if (roomId.trim()) onJoinRoom(roomId.trim()); }}
             className="text-2xl text-white px-8 py-2 w-full"
             style={{
               clipPath: 'polygon(0 0, calc(100% - 12px) 0, 100% 12px, 100% 100%, 12px 100%, 0 calc(100% - 12px))',
@@ -85,14 +91,14 @@ export default function TitleMenu(_props: TitleMenuProps) {
         <div className='text-2xl text-[oklch(98.8% 0.003 106.5)]'>
           <label htmlFor='room_id' className="w-full bg-[#1a2035]">
           ENTER ROOM ID :&nbsp;</label>
-          <input type='text' name='roomId' id='room_id' placeholder="Exp: N0_1155" 
+          <input type='text' name='roomId' id='room_id' placeholder="Exp: N0_1155"
+          value={roomId}
+          onChange={(e) => setRoomId(e.target.value.toUpperCase())}
           className="border border-white-25 py-2 p-2"
           style ={{
             border:'1px solid rgb(255,255,255)',
             boxShadow:'0 0 8px rgba(255,255,255,0.4), inset 0 0 8px rgba(255,255,255,0.4)'
-          }}>
-
-          </input>
+          }}/>
         </div>
     </div>
   );
