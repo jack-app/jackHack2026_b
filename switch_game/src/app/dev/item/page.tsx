@@ -16,7 +16,7 @@ export default function DevItemPage() {
           <Item type="blinded" />
         </div>
         <div className="rounded-3xl border border-zinc-700 bg-white/5 p-6">
-          <p className="mb-3 text-sm text-zinc-400">Jump</p>
+          <p className="mb-3 text-sm">Jump</p>
           <Item type="jump" />
         </div>
       </div>
