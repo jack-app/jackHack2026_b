@@ -15,7 +15,7 @@ from app.game_logic import (
     reverse_direction,
 )
 from app.map_generator import generate_map, get_initial_items, get_spawn_position
-from app.models import GameError, GameState, Item, ItemRespawn, Player, PlayerStatus
+from app.models import GameError, GameState, Item, ItemRespawn, MapData, PlayerStatus
 from app.redis_store import RedisStore
 
 GAME_DURATION = 120
@@ -49,7 +49,7 @@ class GameManager:
 
     # ── create_room ───────────────────────────────────────────
 
-    async def create_room(self, sid: str) -> tuple[str, GameState, object]:
+    async def create_room(self, sid: str) -> tuple[str, GameState, MapData]:
         map_data = generate_map()
         x, y = get_spawn_position("red", 0)
         chars = string.ascii_uppercase + string.digits
@@ -74,7 +74,7 @@ class GameManager:
 
     # ── join_room ─────────────────────────────────────────────
 
-    async def join_room(self, sid: str, room_id: str) -> tuple[GameState, object]:
+    async def join_room(self, sid: str, room_id: str) -> tuple[GameState, MapData]:
         if not await self._store.room_exists(room_id):
             raise GameError("room_not_found")
 
@@ -222,7 +222,10 @@ class GameManager:
 
             if respawning:
                 map_data = await self._store.load_map(room_id)
-                if map_data:
+                if map_data is None:
+                    # マップ取得失敗 → 次 tick で再試行
+                    still_waiting.extend(respawning)
+                else:
                     for item_pending in respawning:
                         pos = self._find_item_spawn_position(
                             map_data["map"], state["items"], state["players"]
@@ -231,6 +234,13 @@ class GameManager:
                             state["items"].append(
                                 Item(name=item_pending["name"], x=pos[0], y=pos[1])
                             )
+                        else:
+                            # 有効なスポーン位置なし → 5秒後に再試行
+                            retry: ItemRespawn = {
+                                "name": item_pending["name"],
+                                "respawn_at": now + 5.0,
+                            }
+                            still_waiting.append(retry)
 
             state["item_respawn_queue"] = still_waiting
 
