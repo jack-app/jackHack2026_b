@@ -19,7 +19,7 @@ export default function Tile({ cell, switchState, switchWeight }: TileProps) {
 // 壁
   if (cell ===  0)return(
     <div
-  className="bg-white w-10 h-10"
+  className="bg-stone-400 w-10 h-10"
     >
      <Image
       src="/PikPng.com_crack-png_3016889.png"
@@ -31,10 +31,9 @@ export default function Tile({ cell, switchState, switchWeight }: TileProps) {
 
   )
 
-  // 床
+// 床
   if (cell===1)return(
-    <div className="w-10 h-10 bg-white">
-      
+    <div className="w-10 h-10 border border-slate-500">
     </div>
   )
 
