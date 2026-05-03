@@ -17,10 +17,15 @@ const sampleMapData: MapData = {
   },
 };
 
-const myPlayer:Player = {
+const myPlayer: Player = {
   team: "red",
   x: 1,
   y: 1,
+  status: {
+    blinded: false,
+    reversed: false,
+    can_jump: false,
+  },
 };
 
 const otherPlayers: Player[] = [
@@ -28,11 +33,21 @@ const otherPlayers: Player[] = [
     team: "blue",
     x: 3,
     y: 0,
+    status: {
+      blinded: false,
+      reversed: false,
+      can_jump: false,
+    },
   },
   {
     team: "red",
     x: 0,
     y: 3,
+    status: {
+      blinded: false,
+      reversed: false,
+      can_jump: false,
+    },
   },
 ];
 
@@ -45,8 +60,8 @@ export default function DevBoardPage() {
           mapData={sampleMapData}
           myPlayer={myPlayer}
           otherPlayers={otherPlayers}
-          switches={{ s01: null, s02: null, s03: null }}
-          isBlined={false}
+          switches={{ s01: "red", s02: "blue", s03: null }}
+          isBlinded={false}
         />
       </div>
     </main>

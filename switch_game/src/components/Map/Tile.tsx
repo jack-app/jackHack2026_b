@@ -2,36 +2,34 @@ import Image from "next/image";
 
 interface TileProps {
   cell: number | string;
+  size?: number;
   switchState?: "red" | "blue" | null;
   switchWeight?: number;
 }
 
-export default function Tile({ cell, switchState, switchWeight }: TileProps) {
+export default function Tile({ cell, size = 40, switchState }: TileProps) {
+  const s = { width: size, height: size };
+  const inner = Math.round(size * 0.8);
+
   // 壁
   if (cell === 1)
     return (
-      <div className="bg-stone-400 w-10 h-10">
-        <Image
-          src="/PikPng.com_crack-png_3016889.png"
-          width={50}
-          height={10}
-          alt=""
-        />
+      <div className="relative bg-stone-400" style={s}>
+        <Image src="/PikPng.com_crack-png_3016889.png" fill alt="" style={{ objectFit: "cover" }} />
       </div>
     );
 
   // 床
   if (cell === 0)
-    return <div className="w-10 h-10 border border-slate-500"></div>;
+    return <div className="border border-slate-500" style={s}></div>;
 
   // スイッチ赤
   if (switchState === "red")
     return (
-      <div className="relative w-10 h-10 bg-red-700 drop-shadow-[0_0_10px_rgba(231,0,11,0.8)] text-2xl">
-        <div className="absolute w-14 rotate-45 border-t border-red-500 origin-left"></div>
-        <div className="absolute w-14 -rotate-45 border-b border-red-500 origin-top-left top-10"></div>
-        <div className="absolute top-1 left-1 flex items-center justify-center bg-red-500 w-8 h-8 text-red-300">
-          R
+      <div className="relative bg-red-700 drop-shadow-[0_0_10px_rgba(231,0,11,0.8)]" style={s}>
+        <div className="absolute inset-0 flex items-center justify-center">
+          <div className="flex items-center justify-center bg-red-500 text-red-300 font-bold"
+            style={{ width: inner, height: inner, fontSize: Math.round(inner * 0.5) }}>R</div>
         </div>
       </div>
     );
@@ -39,21 +37,21 @@ export default function Tile({ cell, switchState, switchWeight }: TileProps) {
   // スイッチ青
   if (switchState === "blue")
     return (
-      <div className="relative w-10 h-10 bg-blue-700 drop-shadow-[0_0_10px_rgba(21,93,251,0.8)] text-2xl">
-        <div className="absolute w-14 rotate-45 border-t border-blue-500 origin-left"></div>
-        <div className="absolute w-14 -rotate-45 border-b border-blue-500 origin-top-left top-10"></div>
-        <div className="absolute top-1 left-1 flex items-center justify-center bg-blue-500 w-8 h-8 text-blue-300">
-          B
+      <div className="relative bg-blue-700 drop-shadow-[0_0_10px_rgba(21,93,251,0.8)]" style={s}>
+        <div className="absolute inset-0 flex items-center justify-center">
+          <div className="flex items-center justify-center bg-blue-500 text-blue-300 font-bold"
+            style={{ width: inner, height: inner, fontSize: Math.round(inner * 0.5) }}>B</div>
         </div>
       </div>
     );
-  // スイッチ
+
+  // スイッチ（未取得）
   if (switchState === null)
     return (
-      <div className="relative w-10 h-10 bg-stone-400 drop-shadow-[0_0_10px_rgba(255,255,255,0.8)] text-2xl">
-        <div className="absolute w-14 rotate-45 border-t border-stone-200 origin-left"></div>
-        <div className="absolute w-14 -rotate-45 border-b border-stone-200 origin-top-left top-10"></div>
-        <div className="absolute top-1 left-1 flex items-center justify-center bg-stone-200 w-8 h-8 text-blue-300"></div>
+      <div className="relative bg-stone-400 drop-shadow-[0_0_10px_rgba(255,255,255,0.8)]" style={s}>
+        <div className="absolute inset-0 flex items-center justify-center">
+          <div className="bg-stone-200" style={{ width: inner, height: inner }}></div>
+        </div>
       </div>
     );
 }

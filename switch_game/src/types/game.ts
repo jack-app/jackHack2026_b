@@ -2,6 +2,11 @@ export interface Player {
   team: "red" | "blue";
   x: number;
   y: number;
+  status: {
+    blinded: boolean;
+    reversed: boolean;
+    can_jump: boolean;
+  };
 }
 
 export interface GameState {
@@ -9,6 +14,7 @@ export interface GameState {
   status: "waiting" | "playing" | "finished";
   host: string;
   players: Record<string, Player>;
+  items: ItemData[];
   time_left: number;
   switches: Record<string, "red" | "blue" | null>;
   score: {
@@ -18,6 +24,7 @@ export interface GameState {
 }
 
 export interface MapData {
+  // 0地面、1が壁、2:blined、3: reverse, 4: jump, その他IDはスイッチ
   map: (number | string)[][];
   switch_weights: Record<string, number>;
 }
@@ -25,8 +32,7 @@ export interface MapData {
 export type ItemType = "reverse" | "blinded" | "jump";
 
 export interface ItemData {
-  id: string;
-  type: ItemType;
+  name: ItemType;
   x: number;
   y: number;
 }

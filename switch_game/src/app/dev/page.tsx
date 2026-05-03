@@ -3,7 +3,6 @@
 import Link from "next/link";
 
 const pages = [
-  { href: "/dev/gameframe", label: "GameFrame" },
   { href: "/dev/topheader", label: "TopHeader" },
   { href: "/dev/timeleft", label: "TimeLeft" },
   { href: "/dev/statusdisplay", label: "StatusDisplay" },

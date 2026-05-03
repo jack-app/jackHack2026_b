@@ -1,7 +1,7 @@
 "use client";
 
-import { useState, useCallback } from "react";
-import { GameState, MapData } from "@/types/game";
+import { useState, useCallback, useEffect, useRef } from "react";
+import { GameState, MapData, ItemData } from "@/types/game";
 import { useSocket } from "@/hooks/useSocket";
 import { useGameInput } from "@/hooks/useGameInput";
 import TopHeader from "@/components/Layout/TopHeader";
@@ -28,6 +28,54 @@ export default function Home() {
 
   useGameInput(socket, gameState?.status === "playing");
 
+  const gameBgmRef = useRef<HTMLAudioElement | null>(null);
+  const titleBgmRef = useRef<HTMLAudioElement | null>(null);
+  const prevGameStatusRef = useRef<string | null>(null);
+  useEffect(() => {
+    const status = gameState?.status ?? null;
+
+    if (status === null) {
+      // タイトル画面: タイトル BGM 再生
+      if (!titleBgmRef.current) {
+        titleBgmRef.current = new Audio(
+          "/title-bgm_pocket-bgm_incredible conflict.mp3",
+        );
+        titleBgmRef.current.loop = true;
+      }
+      titleBgmRef.current.play().catch(() => {});
+    } else {
+      titleBgmRef.current?.pause();
+      titleBgmRef.current = null;
+    }
+
+    if (status === "playing") {
+      if (!gameBgmRef.current) {
+        gameBgmRef.current = new Audio(
+          "/game-bgm_pocket-sound_ハイテク赤ちゃん.mp3",
+        );
+        gameBgmRef.current.loop = true;
+      }
+      gameBgmRef.current.play().catch(() => {});
+    } else {
+      gameBgmRef.current?.pause();
+      gameBgmRef.current = null;
+    }
+
+    if (prevGameStatusRef.current === "playing" && status === "finished") {
+      new Audio("/timeup_pocket-sound_時間切れ（タイムアップ）.mp3")
+        .play()
+        .catch(() => {});
+    }
+    prevGameStatusRef.current = status;
+  }, [gameState?.status]);
+
+  const handleStartGame = useCallback(() => {
+    new Audio("/switch-sound_効果音ラボ_決定ボタンを押す49.mp3")
+      .play()
+      .catch(() => {});
+    startGame();
+  }, [startGame]);
+
   const handleReturnToTitle = useCallback(() => {
     setGameState(null);
     setMapData(null);
@@ -43,7 +91,29 @@ export default function Home() {
           .map(([, player]) => player)
       : [];
 
-  const showBoard = gameState !== null && mapData !== null && myPlayer !== undefined;
+  const prevItemsRef = useRef<ItemData[]>([]);
+  useEffect(() => {
+    const items = gameState?.items ?? [];
+    const prev = prevItemsRef.current;
+    if (myPlayer && prev.length > items.length) {
+      const removed = prev.filter(
+        (p) => !items.some((c) => c.x === p.x && c.y === p.y),
+      );
+      const pickedUp = removed.find(
+        (item) => item.x === myPlayer.x && item.y === myPlayer.y,
+      );
+      if (pickedUp) {
+        console.log("[item-get]", pickedUp.name, "at", pickedUp.x, pickedUp.y);
+        new Audio("/item-get_pocket-sound_アイテム取得音2.mp3")
+          .play()
+          .catch(() => {});
+      }
+    }
+    prevItemsRef.current = items;
+  }, [gameState?.items]);
+
+  const showBoard =
+    gameState !== null && mapData !== null && myPlayer !== undefined;
 
   return (
     <div>
@@ -63,20 +133,34 @@ export default function Home() {
 
       {/* 状態B / C / D: ボード (背景) */}
       {showBoard && (
-        <Board mapData={mapData!} myPlayer={myPlayer!} otherPlayers={otherPlayers} />
-      )}
+        <div className="flex justify-center">
+          <Board
+            mapData={mapData!}
+            myPlayer={myPlayer!}
+            otherPlayers={otherPlayers}
+            switches={gameState?.switches}
+            items={gameState?.items}
+            isBlinded={myPlayer?.status?.blinded}
+          />
 
-      {/* 状態B: 待機中オーバーレイ */}
-      {gameState?.status === "waiting" && (
-        <WaitingText
-          isHost={gameState.host === socketId}
-          onStartGame={startGame}
-        />
+          {/* 状態B: 待機中オーバーレイ */}
+          {gameState?.status === "waiting" && (
+            <div className="absolute inset-0 flex items-center justify-center">
+              <WaitingText
+                isHost={gameState.host === socketId}
+                onStartGame={handleStartGame}
+              />
+            </div>
+          )}
+        </div>
       )}
 
       {/* 状態D: リザルトモーダル */}
       {gameState?.status === "finished" && (
-        <ResultModal gameState={gameState} onReturnToTitle={handleReturnToTitle} />
+        <ResultModal
+          gameState={gameState}
+          onReturnToTitle={handleReturnToTitle}
+        />
       )}
     </div>
   );

@@ -2,10 +2,10 @@ import { Player as PlayerType } from "@/types/game";
 
 interface PlayerProps {
   player: PlayerType;
-  isBlined: boolean;
+  isBlinded: boolean;
 }
 
-export default function Player({ player, isBlined }: PlayerProps) {
+export default function Player({ player, isBlinded }: PlayerProps) {
   // 赤チームの場合
   if (player.team === "red")
     return (
@@ -22,7 +22,7 @@ export default function Player({ player, isBlined }: PlayerProps) {
             <div className="w-0.5 h-1 rounded-[50%/50%] bg-white absolute top-0 left-0.5"></div>
           </div>
           {/* 目隠しバンド */}
-          {isBlined && (
+          {isBlinded && (
             <div className="absolute top-2.5 left-0 w-full h-3 bg-black opacity-80 rounded" />
           )}
         </div>
@@ -44,7 +44,7 @@ export default function Player({ player, isBlined }: PlayerProps) {
             <div className="w-0.5 h-1 rounded-[50%/50%] bg-white absolute top-0 left-0.5"></div>
           </div>
           {/* 目隠しバンド */}
-          {isBlined && (
+          {isBlinded && (
             <div className="absolute top-2.5 left-0 w-full h-3 bg-black opacity-80 rounded" />
           )}
         </div>
