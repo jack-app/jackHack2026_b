@@ -9,11 +9,11 @@ export default function DevPlayerPage() {
       <div className="grid gap-6 sm:grid-cols-2">
         <div className="rounded-3xl border border-zinc-700 bg-white/5 p-6">
           <p className="mb-4 text-sm text-zinc-400">Self Player</p>
-          <Player player={{ team: "red", x: 2, y: 3 }} isSelf />
+          <Player player={{ team: "red", x: 2, y: 3 }} isBlined />
         </div>
         <div className="rounded-3xl border border-zinc-700 bg-white/5 p-6">
           <p className="mb-4 text-sm text-zinc-400">Other Player</p>
-          <Player player={{ team: "blue", x: 1, y: 4 }} isSelf={false} />
+          <Player player={{ team: "blue", x: 1, y: 4 }}isBlined={false}  />
         </div>
       </div>
     </main>

@@ -45,6 +45,7 @@ export default function DevBoardPage() {
           mapData={sampleMapData}
           myPlayer={myPlayer}
           otherPlayers={otherPlayers}
+          isBlined={false}
         />
       </div>
     </main>
