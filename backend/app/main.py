@@ -56,7 +56,7 @@ async def _tick_loop() -> None:
 
         playing_rooms = await store.get_playing_rooms()
         for room_id in playing_rooms:
-            # tick 権を原子的に取得（他ワーカ��がすでに取得済みならスキップ）
+            # tick 権を原子的に取得（他がすでに取得済みならスキップ）
             claimed = await store.client.set(
                 f"tick:{room_id}", "1", nx=True, px=900
             )

@@ -271,7 +271,7 @@ async def test_countdown_idempotency() -> None:
         t_start = time.monotonic()
         await ca.start_game()
         await cb.drain()
-        ok("ゲーム���始")
+        ok("game started")
 
         # ── Fix 1: playing_rooms に room_id が追加されているか確認 ──
         pr = await r.smembers("playing_rooms")
@@ -571,7 +571,7 @@ async def test_host_promotion() -> None:
         elif playing_state is not None:
             ok(f"Fix 3: B が start_game に成功 → status=playing")
         else:
-            ng("Fix 3: 5��以内に playing state を受信できなかった")
+            ng("Fix 3: 5秒以内に playing state を受信できなかった")
 
     except asyncio.TimeoutError:
         ng("操作がタイムアウトしました")
