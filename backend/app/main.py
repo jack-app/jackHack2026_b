@@ -1,6 +1,7 @@
 import asyncio
 import os
 
+import redis.exceptions
 import socketio
 from dotenv import load_dotenv
 from fastapi import FastAPI
@@ -29,9 +30,7 @@ socket_app = socketio.ASGIApp(sio, app)
 
 gm = GameManager(store)
 
-# このワーカーが tick を担当するルームの集合
-_worker_rooms: set[str] = set()
-# tick ループタスクの参照（再起動判定用）
+# Fix 1: tick ループタスクの参照（再起動判定用）
 _tick_task: asyncio.Task | None = None
 
 
@@ -44,40 +43,49 @@ def _ensure_tick_loop() -> None:
 
 async def _tick_loop() -> None:
     """
-    1 秒ごとに _worker_rooms 内の各ルームを tick する。
+    Fix 1: per-worker の _worker_rooms を廃止し Redis Set playing_rooms を使う。
+    任意のワーカーが任意の playing room を tick できる。
+
+    Fix 2: gm.tick() の LockError を捕捉し、タスク自体が死なないようにする。
+
     tick gate (SET NX PX 900) により、同じルームを複数ワーカーが
     同一秒に二重 tick しないことを保証する。
     """
     while True:
         await asyncio.sleep(1)
-        if not _worker_rooms:
-            break
 
-        for room_id in list(_worker_rooms):
-            # このワーカーが今秒の tick 権を取得できた場合のみ処理する
+        playing_rooms = await store.get_playing_rooms()
+        for room_id in playing_rooms:
+            # tick 権を原子的に取得（他ワーカ��がすでに取得済みならスキップ）
             claimed = await store.client.set(
                 f"tick:{room_id}", "1", nx=True, px=900
             )
             if not claimed:
                 continue
 
-            state = await gm.tick(room_id)
+            try:
+                state = await gm.tick(room_id)
+            except redis.exceptions.LockError:
+                # Fix 2: 一時的なロック競合 — このサイクルをスキップ、次秒に再試行
+                continue
+            except Exception:
+                continue
+
             if state is None:
-                _worker_rooms.discard(room_id)
+                await store.remove_playing_room(room_id)
                 continue
 
             await sio.emit("update_state", state, room=room_id)
             if state["status"] == "finished":
-                _worker_rooms.discard(room_id)
+                await store.remove_playing_room(room_id)
 
 
-# ------------------------------------------------------------------
-# Socket.io イベントハンドラ
-# ------------------------------------------------------------------
+# ── Socket.io イベントハンドラ ──────────────────────────────────────
 
 @sio.event
 async def connect(sid: str, environ: dict) -> None:
-    pass
+    # Fix 1: 接続が来た時点で tick ループを起動（クラッシュからの自動回復も兼ねる）
+    _ensure_tick_loop()
 
 
 @sio.event
@@ -113,10 +121,8 @@ async def start_game(sid: str, data: dict) -> None:
         await sio.emit("error", {"reason": e.reason}, to=sid)
         return
 
-    # このワーカーが start_game を受け取った = tick 担当として登録
-    _worker_rooms.add(room_id)
+    # start_game 内で playing_rooms に追加済み。tick ループが生きていることを確認。
     _ensure_tick_loop()
-
     await sio.emit("update_state", state, room=room_id)
 
 
@@ -132,13 +138,9 @@ async def move(sid: str, data: dict) -> None:
         return
 
     room_id, state = result
-
-    # start_game を別ワーカーが受け取った場合でも、move を受け取った
-    # ワーカーが tick を引き継げるようにする（ワーカークラッシュ耐性）
-    if state["status"] == "playing" and room_id not in _worker_rooms:
-        _worker_rooms.add(room_id)
+    # tick ループ生存確認（ワーカー再起動後の初回 move で回復）
+    if state["status"] == "playing":
         _ensure_tick_loop()
-
     await sio.emit("update_state", state, room=room_id)
 
 

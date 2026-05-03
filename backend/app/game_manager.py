@@ -1,7 +1,9 @@
 import random
 import string
 import time
+
 import redis.exceptions
+
 from app.game_logic import calc_next_pos, calc_score, get_cell, is_switch, is_wall
 from app.map_generator import generate_map, get_spawn_position
 from app.models import GameError, GameState, MapData
@@ -14,9 +16,7 @@ class GameManager:
     def __init__(self, store: RedisStore) -> None:
         self._store = store
 
-    # ------------------------------------------------------------------
-    # create_room
-    # ------------------------------------------------------------------
+    # ── create_room ───────────────────────────────────────────
 
     async def create_room(self, sid: str) -> tuple[str, GameState, MapData]:
         map_data = generate_map()
@@ -34,17 +34,13 @@ class GameManager:
                 "switches": {sw: None for sw in map_data["switch_weights"]},
                 "score": {"red": 0, "blue": 0},
             }
-            # SET NX で room_id の衝突を防ぐ（原子的作成）
-            if await self._store.create_room_atomic(room_id, state):
+            # Fix 5: room・map・sid を 1 パイプラインで原子的に作成
+            if await self._store.create_room_atomic(room_id, state, map_data, sid):
                 break
 
-        await self._store.save_map(room_id, map_data)
-        await self._store.set_sid_room(sid, room_id)
         return room_id, state, map_data
 
-    # ------------------------------------------------------------------
-    # join_room
-    # ------------------------------------------------------------------
+    # ── join_room ─────────────────────────────────────────────
 
     async def join_room(self, sid: str, room_id: str) -> tuple[GameState, MapData]:
         if not await self._store.room_exists(room_id):
@@ -73,9 +69,7 @@ class GameManager:
                 raise GameError("room_not_found")
             return state, map_data
 
-    # ------------------------------------------------------------------
-    # start_game
-    # ------------------------------------------------------------------
+    # ── start_game ────────────────────────────────────────────
 
     async def start_game(self, sid: str, room_id: str) -> GameState:
         if not await self._store.room_exists(room_id):
@@ -93,11 +87,11 @@ class GameManager:
             state["status"] = "playing"
             await self._store.set_game_end_time(room_id, time.time() + GAME_DURATION)
             await self._store.save_state(room_id, state)
+            # Fix 1: 任意のワーカーの _tick_loop が room を拾えるよう Redis Set に登録
+            await self._store.add_playing_room(room_id)
             return state
 
-    # ------------------------------------------------------------------
-    # move_player
-    # ------------------------------------------------------------------
+    # ── move_player ───────────────────────────────────────────
 
     async def move_player(self, sid: str, direction: str) -> tuple[str, GameState] | None:
         room_id = await self._store.get_sid_room(sid)
@@ -105,9 +99,9 @@ class GameManager:
             return None
 
         try:
-            # blocking_timeout=0.1: 100ms 以内にロック取得できなければ move を破棄。
-            # クライアントは 100ms スロットリングで自動リトライするため問題なし。
-            async with self._store.lock(room_id, timeout=5.0, blocking_timeout=0.1):
+            # Fix 6: blocking_timeout を削除。lock TTL=5s が安全弁になる。
+            # 正当な move をネットワーク遅延・ロック競合で破棄しない。
+            async with self._store.lock(room_id, timeout=5.0):
                 state = await self._store.load_state(room_id)
                 if state is None or state["status"] != "playing":
                     return None
@@ -140,13 +134,10 @@ class GameManager:
                 await self._store.save_state(room_id, state)
                 return room_id, state
 
-        except redis.exceptions.LockError:
-            # ロック取得タイムアウト — この move は無視
+        except (redis.exceptions.LockError, redis.exceptions.RedisError):
             return None
 
-    # ------------------------------------------------------------------
-    # tick
-    # ------------------------------------------------------------------
+    # ── tick ──────────────────────────────────────────────────
 
     async def tick(self, room_id: str) -> GameState | None:
         async with self._store.lock(room_id, blocking_timeout=0.5):
@@ -158,7 +149,7 @@ class GameManager:
             if end_time is None:
                 return None
 
-            # デクリメントではなく wall clock から計算するため冪等
+            # Fix (design): デクリメントではなく wall clock から計算するため冪等
             time_left = max(0, int(end_time - time.time()))
             state["time_left"] = time_left
             if time_left <= 0:
@@ -167,9 +158,7 @@ class GameManager:
             await self._store.save_state(room_id, state)
             return state
 
-    # ------------------------------------------------------------------
-    # disconnect
-    # ------------------------------------------------------------------
+    # ── disconnect ────────────────────────────────────────────
 
     async def disconnect(self, sid: str) -> tuple[str | None, GameState | None]:
         room_id = await self._store.get_sid_room(sid)
@@ -194,14 +183,15 @@ class GameManager:
                 await self._store.delete_room(room_id)
                 remaining = None
             else:
+                # Fix 3: ホストが waiting 中に退室 → 残存プレイヤーの先頭をホストに昇格
+                if state["host"] == sid and state["status"] == "waiting":
+                    state["host"] = next(iter(state["players"]))
                 await self._store.save_state(room_id, state)
                 remaining = state
 
         return room_id, remaining
 
-    # ------------------------------------------------------------------
-    # get_room_id
-    # ------------------------------------------------------------------
+    # ── get_room_id ───────────────────────────────────────────
 
     async def get_room_id(self, sid: str) -> str | None:
         return await self._store.get_sid_room(sid)

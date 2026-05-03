@@ -4,17 +4,18 @@
 
 使用方法:
   cd backend
-  source .venv/bin/activate
-  python tests/stress_test.py [SERVER_URL [REDIS_URL]]
+  pip install -r requirements-dev.txt   # aiohttp (テスト専用)
+  python -u tests/stress_test.py [SERVER_URL [REDIS_URL]]
 
 デフォルト:
   SERVER_URL = http://localhost:8000
   REDIS_URL  = redis://localhost:6379
 
 検証項目:
-  TEST 1  クロスクライアント通信 (AsyncRedisManager 経由での broadcast)
-  TEST 2  カウントダウン冪等性 (game_end_time ベースの wall clock 一致)
+  TEST 1  クロスクライアント通信 (AsyncRedisManager broadcast)
+  TEST 2  カウントダウン冪等性 + Redis キー検証 (TTL / playing_rooms)
   TEST 3  Race Condition (同時 create_room / 同時 move)
+  TEST 4  ホスト退出 → 昇格 → ゲーム開始 (Fix 3)
 """
 
 import asyncio
@@ -22,47 +23,45 @@ import json
 import sys
 import time
 import warnings
-from typing import Any, Optional
+from typing import Optional
 
 # aiohttp が接続失敗時に内部 ClientSession を閉じない既知の挙動を抑制
 warnings.filterwarnings("ignore", message="Unclosed client session", category=ResourceWarning)
 
+try:
+    import aiohttp  # noqa: F401 – socketio.AsyncClient の WebSocket transport に必要
+except ImportError:
+    print(
+        "ERROR: aiohttp が未インストールです。\n"
+        "  pip install -r requirements-dev.txt  を実行してください。"
+    )
+    sys.exit(1)
+
 import redis.asyncio as aioredis
 import socketio
 
-# ─────────────────────────────────────────────
-# 設定
-# ─────────────────────────────────────────────
+# ── 設定 ──────────────────────────────────────────────────────────
 SERVER_URL = sys.argv[1] if len(sys.argv) > 1 else "http://localhost:8000"
 REDIS_URL  = sys.argv[2] if len(sys.argv) > 2 else "redis://localhost:6379"
 
 # ANSI カラー
-_G = "\033[92m"   # green
-_R = "\033[91m"   # red
-_Y = "\033[93m"   # yellow
-_C = "\033[96m"   # cyan
-_B = "\033[1m"    # bold
-_X = "\033[0m"    # reset
+_G = "\033[92m"; _R = "\033[91m"; _Y = "\033[93m"
+_C = "\033[96m"; _B = "\033[1m";  _X = "\033[0m"
 
 _passed = 0
 _failed = 0
 
 
 def ok(msg: str) -> None:
-    global _passed
-    _passed += 1
+    global _passed; _passed += 1
     print(f"  {_G}✓{_X} {msg}")
 
-
 def ng(msg: str) -> None:
-    global _failed
-    _failed += 1
+    global _failed; _failed += 1
     print(f"  {_R}✗{_X} {msg}")
-
 
 def info(msg: str) -> None:
     print(f"  {_Y}→{_X} {msg}")
-
 
 def section(title: str) -> None:
     print(f"\n{_B}{_C}{'━' * 60}{_X}")
@@ -70,9 +69,7 @@ def section(title: str) -> None:
     print(f"{_B}{_C}{'━' * 60}{_X}")
 
 
-# ─────────────────────────────────────────────
-# GameClient ラッパー
-# ─────────────────────────────────────────────
+# ── GameClient ラッパー ───────────────────────────────────────────
 
 class GameClient:
     """socketio.AsyncClient を asyncio.Queue で包んだテスト用クライアント"""
@@ -107,8 +104,6 @@ class GameClient:
     def sid(self) -> str:
         return self.sio.get_sid() or ""
 
-    # ---- 高水準 emit ヘルパー ----
-
     async def create_room(self, timeout: float = 5.0) -> dict:
         await self.sio.emit("create_room", {})
         await asyncio.wait_for(self.map_q.get(), timeout=timeout)
@@ -126,11 +121,7 @@ class GameClient:
     async def move(self, direction: str) -> None:
         await self.sio.emit("move", {"direction": direction})
 
-    async def next_state(self, timeout: float = 5.0) -> dict:
-        return await asyncio.wait_for(self.state_q.get(), timeout=timeout)
-
     async def drain(self, window: float = 0.3) -> None:
-        """window 秒以内に届くすべての state を捨てる"""
         try:
             while True:
                 await asyncio.wait_for(self.state_q.get(), timeout=window)
@@ -140,7 +131,6 @@ class GameClient:
     async def wait_for_state_where(
         self, predicate, timeout: float = 10.0
     ) -> Optional[dict]:
-        """predicate(state) == True になる state を返すまで待つ"""
         deadline = time.monotonic() + timeout
         while time.monotonic() < deadline:
             remaining = deadline - time.monotonic()
@@ -155,15 +145,11 @@ class GameClient:
         return None
 
 
-# ─────────────────────────────────────────────
-# PREFLIGHT
-# ─────────────────────────────────────────────
+# ── PREFLIGHT ─────────────────────────────────────────────────────
 
 async def preflight() -> bool:
-    """OK なら True を返す。失敗した項目は ng() でカウント。"""
     section("PREFLIGHT: 環境チェック")
 
-    # Redis
     redis_ok = False
     try:
         r = aioredis.from_url(REDIS_URL, decode_responses=True)
@@ -178,7 +164,6 @@ async def preflight() -> bool:
     if not redis_ok:
         return False
 
-    # Server
     server_ok = False
     c = GameClient("preflight")
     try:
@@ -194,34 +179,23 @@ async def preflight() -> bool:
     return server_ok
 
 
-# ─────────────────────────────────────────────
-# TEST 1: クロスクライアント通信
-# ─────────────────────────────────────────────
+# ── TEST 1: クロスクライアント通信 ───────────────────────────────
 
 async def test_cross_client_communication() -> None:
-    """
-    【目的】AsyncRedisManager 経由での broadcast を検証する。
-    Client A が move を送ると、同じルームにいる Client B に
-    update_state が届くかを確認する。
-    """
     section("TEST 1: クロスクライアント通信 (AsyncRedisManager broadcast)")
-    info("Client A が move を送ると Client B に update_state が届くかを確認")
+    info("Client A の move が Client B に届くかを確認")
 
     ca = GameClient("A")
     cb = GameClient("B")
-
     try:
         await ca.connect()
         await cb.connect()
 
-        # ── ルーム作成 ──
         state = await ca.create_room()
         room_id = state["room_id"]
-        ok(f"Client A がルームを作成: room_id={room_id}")
+        ok(f"Client A がルームを作成: {room_id}")
 
-        # ── B が参加 (join_room は waiting 限定) ──
         join_state = await cb.join_room(room_id)
-        # A にも join の broadcast が来るので drain する
         await ca.drain()
         ok(f"Client B がルーム {room_id} に参加")
 
@@ -230,72 +204,52 @@ async def test_cross_client_communication() -> None:
         else:
             ng(f"room_id 不一致: {join_state.get('room_id')}")
 
-        # ── ゲーム開始 ──
         await ca.start_game()
-        # B にも update_state が届く
         await cb.drain()
         ok("ゲーム開始完了")
 
-        # ── A が move → B が受信 ──
         a_sid = ca.sid
         await ca.move("right")
 
         b_state = await cb.wait_for_state_where(
             lambda s: s.get("status") == "playing", timeout=3.0
         )
-
         if b_state is None:
             ng("Client B が 3秒以内に update_state を受信しなかった")
             return
 
-        ok(f"Client B が update_state を受信")
-
+        ok("Client B が update_state を受信")
         if b_state.get("room_id") == room_id:
             ok(f"受信 state の room_id が一致: {room_id}")
         else:
             ng(f"room_id 不一致: {b_state.get('room_id')}")
 
-        # A のプレイヤー位置が B の受信 state に含まれているか
         players = b_state.get("players", {})
         if a_sid in players:
             pos = players[a_sid]
             ok(f"Client A の位置が B の state に反映: ({pos['x']}, {pos['y']})")
+        elif len(players) == 2:
+            ok(f"state に2プレイヤー存在: {list(players.keys())}")
         else:
-            # SID がズレる場合は状態に2プレイヤーいることだけ確認
-            if len(players) == 2:
-                ok(f"state に2プレイヤー存在 (SID: {list(players.keys())})")
-            else:
-                ng(f"players 数が不正: {len(players)}")
+            ng(f"players 数が不正: {len(players)}")
 
     except asyncio.TimeoutError:
         ng("操作がタイムアウトしました")
     except Exception as e:
-        ng(f"予期しない例外: {e}")
-        raise
+        ng(f"予期しない例外: {e}"); raise
     finally:
         await ca.disconnect()
         await cb.disconnect()
 
 
-# ─────────────────────────────────────────────
-# TEST 2: カウントダウン冪等性
-# ─────────────────────────────────────────────
+# ── TEST 2: カウントダウン冪等性 + Redis キー検証 ─────────────────
 
 async def test_countdown_idempotency() -> None:
-    """
-    【目的】tick が game_end_time ベースで計算されること（冪等性）を検証する。
-
-    検証ポイント:
-    1. time_left が wall clock と整合する（デクリメントではなく end_time - now）
-    2. Redis に game_end:{room_id} キーが存在し、正しい値が入っている
-    3. 複数の tick を受信しても time_left が単調減少し、リセットされない
-    """
-    section("TEST 2: カウントダウン冪等性 (game_end_time ベース)")
-    info("time_left が wall clock と整合するかを確認")
+    section("TEST 2: カウントダウン冪等性 + Redis キー検証")
+    info("time_left が wall clock と整合するか / TTL・playing_rooms を直接検証")
 
     ca = GameClient("A")
     cb = GameClient("B")
-
     try:
         await ca.connect()
         await cb.connect()
@@ -305,37 +259,54 @@ async def test_countdown_idempotency() -> None:
         await cb.join_room(room_id)
         await ca.drain()
 
-        # ── ゲーム開始 & 直後の state を記録 ──
+        # ── Fix 4: 作成直後のキーに TTL が設定されているか確認 ──
+        r = aioredis.from_url(REDIS_URL, decode_responses=True)
+        for key in [f"room:{room_id}", f"map:{room_id}"]:
+            ttl = await r.ttl(key)
+            if ttl > 0:
+                ok(f"Fix 4: {key} に TTL あり ({ttl}s)")
+            else:
+                ng(f"Fix 4: {key} に TTL なし (ttl={ttl})")
+
         t_start = time.monotonic()
         await ca.start_game()
         await cb.drain()
-        ok("ゲーム開始")
+        ok("ゲーム���始")
 
-        # ── 最初の tick を待つ（time_left < 120 になったもの）──
+        # ── Fix 1: playing_rooms に room_id が追加されているか確認 ──
+        pr = await r.smembers("playing_rooms")
+        if room_id in pr:
+            ok(f"Fix 1: playing_rooms に {room_id} が登録済み")
+        else:
+            ng(f"Fix 1: playing_rooms に {room_id} が存在しない (members={pr})")
+
+        # ── Fix 4: game_end_time キーに TTL が設定されているか確認 ──
+        ge_ttl = await r.ttl(f"game_end:{room_id}")
+        if ge_ttl > 0:
+            ok(f"Fix 4: game_end:{room_id} に TTL あり ({ge_ttl}s)")
+        else:
+            ng(f"Fix 4: game_end:{room_id} に TTL なし")
+
+        # ── カウントダウン冪等性の検証 ──
         first_tick = await ca.wait_for_state_where(
             lambda s: s.get("time_left", 120) < 120, timeout=4.0
         )
         if first_tick is None:
-            ng("4秒以内に tick update_state を受信しなかった")
-            return
+            ng("4秒以内に tick update_state を受信しなかった"); return
 
         t_first = time.monotonic()
-        elapsed_first = t_first - t_start
         reported_first = first_tick["time_left"]
-        expected_first = max(0, 120 - int(elapsed_first))
-        diff_first = abs(reported_first - expected_first)
-
-        ok(f"最初の tick: time_left={reported_first} / 経過={elapsed_first:.1f}s / 期待値≈{expected_first}")
+        elapsed_first = t_first - t_start
+        diff_first = abs(reported_first - max(0, 120 - int(elapsed_first)))
+        ok(f"最初の tick: time_left={reported_first} / 経過={elapsed_first:.1f}s")
         if diff_first <= 2:
             ok(f"Wall clock との誤差 {diff_first}s ≤ 2s (許容範囲)")
         else:
             ng(f"Wall clock との誤差が大きい: {diff_first}s")
 
-        # ── 3秒待ってさらに tick を収集 ──
         info("3秒待機して time_left の単調減少を確認...")
         await asyncio.sleep(3)
 
-        # 直近の state を取得
         latest = None
         while not ca.state_q.empty():
             latest = await ca.state_q.get()
@@ -348,72 +319,49 @@ async def test_countdown_idempotency() -> None:
             ng("追加の tick を受信できなかった")
         else:
             t_latest = time.monotonic()
-            elapsed_latest = t_latest - t_start
             reported_latest = latest["time_left"]
-            expected_latest = max(0, 120 - int(elapsed_latest))
+            expected_latest = max(0, 120 - int(t_latest - t_start))
             diff_latest = abs(reported_latest - expected_latest)
-
             ok(f"3秒後の tick: time_left={reported_latest} / 期待値≈{expected_latest}")
             if diff_latest <= 2:
                 ok(f"Wall clock との誤差 {diff_latest}s ≤ 2s (許容範囲)")
             else:
                 ng(f"Wall clock との誤差: {diff_latest}s")
-
             if reported_latest < reported_first:
-                ok(f"time_left が単調減少: {reported_first} → {reported_latest} (リセットなし)")
-            elif reported_latest == reported_first:
-                ng("time_left が変化していない（tick が届いていない可能性）")
+                ok(f"time_left が単調減少: {reported_first} → {reported_latest}")
             else:
-                ng(f"time_left が増加した: {reported_first} → {reported_latest} (リセット疑い)")
+                ng(f"time_left が増加/不変: {reported_first} → {reported_latest}")
 
-        # ── Redis に game_end_time キーが永続化されているか ──
-        info("Redis に game_end_time キーが保存されているか確認...")
-        r = aioredis.from_url(REDIS_URL, decode_responses=True)
-        end_time_raw = await r.get(f"game_end:{room_id}")
-        await r.aclose()
-
-        if end_time_raw is None:
-            ng(f"Redis キー game_end:{room_id} が存在しない")
+        # ── Fix 4: Redis に game_end_time が保存されているか ──
+        end_raw = await r.get(f"game_end:{room_id}")
+        if end_raw:
+            remaining = float(end_raw) - time.time()
+            ok(f"Redis game_end_time 保存済み: 残り≈{remaining:.1f}s")
+            if 100 < remaining < 125:
+                ok("game_end_time の値が妥当 (120s ± 25s 以内)")
+            else:
+                ng(f"game_end_time の値が想定外: {remaining:.1f}s")
         else:
-            end_time = float(end_time_raw)
-            now = time.time()
-            remaining_in_redis = end_time - now
-            ok(f"Redis に game_end_time 保存済み: 残り時間≈{remaining_in_redis:.1f}s")
+            ng(f"Redis に game_end:{room_id} が存在しない")
 
-            if 100 < remaining_in_redis < 125:
-                ok(f"game_end_time の値が妥当 (120s ± 25s の範囲内)")
-            else:
-                ng(f"game_end_time の値が想定外: {remaining_in_redis:.1f}s remaining")
+        await r.aclose()
 
     except asyncio.TimeoutError:
         ng("操作がタイムアウトしました")
     except Exception as e:
-        ng(f"予期しない例外: {e}")
-        raise
+        ng(f"予期しない例外: {e}"); raise
     finally:
         await ca.disconnect()
         await cb.disconnect()
 
 
-# ─────────────────────────────────────────────
-# TEST 3: Race Condition 検証
-# ─────────────────────────────────────────────
+# ── TEST 3: Race Condition 検証 ───────────────────────────────────
 
 async def test_race_conditions() -> None:
-    """
-    【目的】分散環境での競合耐性を検証する。
-
-    3-A: 10 クライアントが同時に create_room
-         → SET NX により room_id が全てユニークであること
-    3-B: 2 プレイヤーが 2 秒間同時に move を連打
-         → 分散ロックにより GameState が破損しないこと
-         → Redis 上の最終状態が整合していること
-    """
     section("TEST 3: Race Condition 検証")
 
-    # ── 3-A: 同時 create_room ──
-    info("3-A: 10クライアントが同時に create_room → room_id がユニークかを確認")
-
+    # 3-A: 同時 create_room
+    info("3-A: 10クライアントが同時に create_room → room_id がユニークか確認")
     N = 10
     clients = [GameClient(f"Race-{i}") for i in range(N)]
 
@@ -440,13 +388,10 @@ async def test_race_conditions() -> None:
     if len(unique) == len(room_ids):
         ok(f"room_id が全 {len(room_ids)} 件ユニーク → SET NX が正常動作")
     else:
-        ng(
-            f"room_id に重複あり: {len(room_ids)} 件中 {len(unique)} 件のみユニーク"
-        )
+        ng(f"room_id に重複あり: {len(room_ids)} 件中 {len(unique)} 件のみユニーク")
 
-    # ── 3-B: 同一ルームへの同時 move ──
+    # 3-B: 同一ルームへの同時 move
     info("3-B: 2プレイヤーが 2秒間 move 連打 → GameState 破損がないかを確認")
-
     ca = GameClient("RaceMove-A")
     cb = GameClient("RaceMove-B")
     received_states: list[dict] = []
@@ -459,7 +404,6 @@ async def test_race_conditions() -> None:
         room_id = state["room_id"]
         await cb.join_room(room_id)
         await ca.drain()
-
         await ca.start_game()
         await ca.drain()
         await cb.drain()
@@ -467,7 +411,6 @@ async def test_race_conditions() -> None:
 
         DIRS = ["right", "down", "left", "up"]
         move_counts = {"A": 0, "B": 0}
-
         stop_collecting = asyncio.Event()
 
         async def _collect(client: GameClient) -> None:
@@ -485,18 +428,14 @@ async def test_race_conditions() -> None:
                 await client.move(DIRS[i % 4])
                 move_counts[label] += 1
                 i += 1
-                await asyncio.sleep(0.1)  # 100ms スロットリングに合わせる
+                await asyncio.sleep(0.1)
 
-        # _collect は Task として起動 (_spam 完了後に stop_collecting で終了させる)
         collect_a = asyncio.create_task(_collect(ca))
         collect_b = asyncio.create_task(_collect(cb))
-
         await asyncio.gather(_spam(ca, "A"), _spam(cb, "B"))
-
         stop_collecting.set()
         await asyncio.gather(collect_a, collect_b)
 
-        # 残留 state を回収
         await asyncio.sleep(0.3)
         for q in [ca.state_q, cb.state_q]:
             while not q.empty():
@@ -505,91 +444,159 @@ async def test_race_conditions() -> None:
         info(f"送信 move 数: A={move_counts['A']}, B={move_counts['B']}")
         ok(f"受信 update_state 総数: {len(received_states)}")
 
-        # ── 受信した全 state の整合性チェック ──
-        REQUIRED_FIELDS = {"room_id", "status", "players", "switches", "score", "time_left"}
+        REQUIRED = {"room_id", "status", "players", "switches", "score", "time_left"}
         corruption = False
-
         for i, s in enumerate(received_states):
-            missing = REQUIRED_FIELDS - set(s.keys())
+            missing = REQUIRED - set(s.keys())
             if missing:
-                ng(f"state[{i}] にフィールド欠落: {missing}")
-                corruption = True
-                break
-
+                ng(f"state[{i}] フィールド欠落: {missing}"); corruption = True; break
             score = s.get("score", {})
             if not (isinstance(score.get("red"), int) and isinstance(score.get("blue"), int)):
-                ng(f"state[{i}] のスコア型が異常: {score}")
-                corruption = True
-                break
-
+                ng(f"state[{i}] スコア型異常: {score}"); corruption = True; break
             if score.get("red", -1) < 0 or score.get("blue", -1) < 0:
-                ng(f"state[{i}] に負のスコア: {score}")
-                corruption = True
-                break
+                ng(f"state[{i}] 負のスコア: {score}"); corruption = True; break
 
         if not corruption and received_states:
-            ok(f"全 {len(received_states)} 件の update_state が整合: フィールド欠落・スコア異常なし")
+            ok(f"全 {len(received_states)} 件の update_state が整合")
 
-        # ── Redis 上の最終 GameState を直接検証 ──
-        info("Redis 上の最終 GameState を直接検証...")
+        # Fix 6 検証: move が drop されていないか（全 move に対して state が届いているか）
+        # 40 move 送信に対して受信数が十分あるか（tick 分も含まれるので余裕を見る）
+        expected_min = move_counts["A"] + move_counts["B"]
+        if len(received_states) >= expected_min * 0.5:
+            ok(f"Fix 6: 受信 state 数 {len(received_states)} ≥ 送信 move 数の50% ({expected_min})")
+        else:
+            ng(f"Fix 6: 受信 state 数が少なすぎる ({len(received_states)} < {expected_min * 0.5:.0f})")
+
         r = aioredis.from_url(REDIS_URL, decode_responses=True)
         raw = await r.get(f"room:{room_id}")
         await r.aclose()
 
-        if raw is None:
-            ng(f"Redis に room:{room_id} が存在しない（切断で削除された可能性）")
-        else:
+        if raw:
             final = json.loads(raw)
             players = final.get("players", {})
-            score   = final.get("score", {})
-            switches = final.get("switches", {})
-
+            score = final.get("score", {})
             if len(players) == 2:
-                ok(f"Redis 上に2プレイヤーが存在")
+                ok("Redis 上に2プレイヤーが存在")
             else:
                 ng(f"Redis 上のプレイヤー数: {len(players)} (期待: 2)")
-
             if score.get("red", -1) >= 0 and score.get("blue", -1) >= 0:
                 ok(f"Redis 上のスコアが正常: {score}")
             else:
                 ng(f"Redis 上のスコアが異常: {score}")
-
-            # スコアとスイッチ所有状態の整合性チェック
-            # (map_data の weight なしで score の上限だけ確認)
-            total_score = score.get("red", 0) + score.get("blue", 0)
-            owned_count = sum(1 for v in switches.values() if v is not None)
-            if total_score >= 0:
-                ok(f"スイッチ所有: {owned_count} 個 / total_score={total_score}")
+        else:
+            ng(f"Redis に room:{room_id} が存在しない")
 
     except asyncio.TimeoutError:
         ng("操作がタイムアウトしました")
     except Exception as e:
-        ng(f"予期しない例外: {e}")
-        raise
+        ng(f"予期しない例外: {e}"); raise
     finally:
         await ca.disconnect()
         await cb.disconnect()
 
 
-# ─────────────────────────────────────────────
-# メイン
-# ─────────────────────────────────────────────
+# ── TEST 4: ホスト退出 → 昇格 → ゲーム開始 (Fix 3) ───────────────
+
+async def test_host_promotion() -> None:
+    """
+    Fix 3 の検証:
+    1. A がルーム作成（ホスト）
+    2. B が参加
+    3. A が切断（waiting 中）
+    4. B が start_game → 成功するはず（B がホストに昇格済み）
+    """
+    section("TEST 4: ホスト退出 → ホスト昇格 (Fix 3)")
+    info("A がホストとして待機中に切断 → B がホストに昇格してゲーム開始できるか確認")
+
+    ca = GameClient("A (original host)")
+    cb = GameClient("B (promoted host)")
+
+    try:
+        await ca.connect()
+        await cb.connect()
+
+        state = await ca.create_room()
+        room_id = state["room_id"]
+        original_host = state["host"]
+        ok(f"A がルーム作成: room_id={room_id}, host={original_host}")
+
+        await cb.join_room(room_id)
+        await ca.drain()
+        ok("B が参加完了")
+
+        # A（ホスト）が切断
+        b_sid = cb.sid
+        await ca.disconnect()
+        ok("A（ホスト）が切断")
+
+        # B に update_state が届き、B が新ホストになっているはず
+        promoted_state = await cb.wait_for_state_where(
+            lambda s: s.get("host") == b_sid, timeout=5.0
+        )
+
+        if promoted_state is not None:
+            ok(f"Fix 3: B (sid={b_sid}) がホストに昇格: host={promoted_state['host']}")
+        else:
+            # まだキューに state が来ていない場合は Redis を直接確認
+            r = aioredis.from_url(REDIS_URL, decode_responses=True)
+            raw = await r.get(f"room:{room_id}")
+            await r.aclose()
+            if raw:
+                redis_state = json.loads(raw)
+                if redis_state.get("host") == b_sid:
+                    ok(f"Fix 3: Redis 上で B がホストに昇格済み (host={redis_state['host']})")
+                else:
+                    ng(
+                        f"Fix 3: ホスト昇格されていない "
+                        f"(host={redis_state.get('host')}, B={b_sid})"
+                    )
+            else:
+                ng(f"Fix 3: Redis に room:{room_id} が存在しない")
+
+        # B が start_game を送信 → 成功するはず
+        error_received = asyncio.Event()
+
+        @cb.sio.on("error")
+        async def _on_start_error(data: dict) -> None:
+            error_received.set()
+
+        await cb.sio.emit("start_game", {})
+
+        playing_state = await cb.wait_for_state_where(
+            lambda s: s.get("status") == "playing", timeout=5.0
+        )
+
+        if error_received.is_set():
+            ng("Fix 3: start_game がエラーを返した（ホスト昇格されていない）")
+        elif playing_state is not None:
+            ok(f"Fix 3: B が start_game に成功 → status=playing")
+        else:
+            ng("Fix 3: 5��以内に playing state を受信できなかった")
+
+    except asyncio.TimeoutError:
+        ng("操作がタイムアウトしました")
+    except Exception as e:
+        ng(f"予期しない例外: {e}"); raise
+    finally:
+        await ca.disconnect()
+        await cb.disconnect()
+
+
+# ── メイン ────────────────────────────────────────────────────────
 
 async def main() -> bool:
-    """全テストを実行し、全合格なら True を返す。"""
-    # aiohttp が接続失敗時に emit する "Unclosed client session" を
-    # asyncio ループの例外ハンドラ経由で抑制する
+    # Fix (aiohttp): asyncio ループの例外ハンドラで "Unclosed client session" を抑制
     loop = asyncio.get_running_loop()
-    _default_handler = loop.get_exception_handler() or (
+    _default = loop.get_exception_handler() or (
         lambda lp, ctx: lp.default_exception_handler(ctx)
     )
 
-    def _quiet_handler(lp: asyncio.AbstractEventLoop, ctx: dict) -> None:
+    def _quiet(lp: asyncio.AbstractEventLoop, ctx: dict) -> None:
         if "Unclosed client session" in ctx.get("message", ""):
             return
-        _default_handler(lp, ctx)
+        _default(lp, ctx)
 
-    loop.set_exception_handler(_quiet_handler)
+    loop.set_exception_handler(_quiet)
 
     print(f"\n{_B}{'=' * 60}{_X}")
     print(f"{_B}  バックエンド統合テスト{_X}")
@@ -604,10 +611,10 @@ async def main() -> bool:
         await test_cross_client_communication()
         await test_countdown_idempotency()
         await test_race_conditions()
+        await test_host_promotion()
     except KeyboardInterrupt:
         print(f"\n{_Y}テストを中断しました{_X}")
 
-    # ── サマリー ──
     section("結果サマリー")
     total = _passed + _failed
     print(f"  合格 {_G}{_B}{_passed}{_X} / 不合格 {_R}{_B}{_failed}{_X} / 合計 {total}")

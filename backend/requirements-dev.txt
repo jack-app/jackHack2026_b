@@ -1,7 +1,1 @@
-fastapi
-uvicorn[standard]
-python-socketio
-python-dotenv
-redis[asyncio]
-gunicorn
 aiohttp
