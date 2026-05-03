@@ -1,6 +1,6 @@
 import { GameState } from "@/types/game";
 
-interface StatusDisplayProps {
+export interface StatusDisplayProps {
   roomId: string | null;
   status: GameState["status"] | null;
 }
