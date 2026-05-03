@@ -9,20 +9,35 @@ jackHack2026_b/
 ```
 
 ## 開発環境の起動
-ターミナルを2つ開いて以下を実行する。
+ターミナルを3つ開いて以下を実行する。
 
 ```bash
-# ターミナル1 — バックエンド (port 8000)
+# ターミナル1 — Redis (要 Docker or redis-server)
+docker run --rm -p 6379:6379 redis:7-alpine
+# または: redis-server
+
+# ターミナル2 — バックエンド (port 8000)
 cd backend
 python3 -m venv .venv  # 初回のみ
 source .venv/bin/activate
 pip install -r requirements.txt
-uvicorn app.main:socket_app --reload --host 0.0.0.0 --port 8000
+cp .env.example .env   # 初回のみ（REDIS_URL 等を確認）
+uvicorn app.main:socket_app --host 0.0.0.0 --port 8000
 
-# ターミナル2 — フロントエンド (port 3000)
+# ターミナル3 — フロントエンド (port 3000)
 cd switch_game
 npm run dev
 ```
+
+## 本番環境の起動（マルチワーカー）
+
+```bash
+# backend/ ディレクトリから
+gunicorn -w 4 -k uvicorn.workers.UvicornWorker app.main:socket_app \
+  --bind 0.0.0.0:${PORT:-8000}
+```
+
+`-w` の数はCPUコア数に合わせて調整すること。Redis が起動済みであること。
 
 ## 環境変数
 
