@@ -235,9 +235,11 @@ class GameManager:
                     still_waiting.append(pending)
 
             if respawning:
-                map_data = self._map_cache.get(room_id) or await self._store.load_map(room_id)
+                map_data = await self._store.load_map(room_id)
                 if map_data is not None:
                     self._map_cache[room_id] = map_data
+                else:
+                    self._map_cache.pop(room_id, None)
                 if map_data is None:
                     # マップ取得失敗 → 次 tick で再試行
                     still_waiting.extend(respawning)

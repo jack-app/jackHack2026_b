@@ -2,7 +2,6 @@ import asyncio
 import os
 
 import orjson
-import redis.exceptions
 import socketio
 from dotenv import load_dotenv
 from fastapi import FastAPI
@@ -102,7 +101,8 @@ async def _tick_loop() -> None:
     同一秒に二重 tick しないことを保証する。
 
     playing_rooms が空のとき自己停止する。次の start_game で _ensure_tick_loop() が再起動する。
-    全ルームを asyncio.gather で並列 tick することで、N ルームの処理時間を O(1) にする。
+    全ルームは asyncio.gather で並列 tick されるため、逐次処理より wall-clock latency を抑えられる。
+    ただし、ループ全体の処理量はアクティブなルーム数に比例する。
     """
     global _tick_task
     while True:
