@@ -95,16 +95,25 @@ async def _tick_one_room(room_id: str) -> None:
         await store.remove_playing_room(room_id)
 
 
+_TICK_CONCURRENCY = int(os.environ.get("TICK_CONCURRENCY", "8"))
+
+
 async def _tick_loop() -> None:
     """
     tick gate (SET NX PX 900) により、同じルームを複数ワーカーが
     同一秒に二重 tick しないことを保証する。
 
     playing_rooms が空のとき自己停止する。次の start_game で _ensure_tick_loop() が再起動する。
-    全ルームは asyncio.gather で並列 tick されるため、逐次処理より wall-clock latency を抑えられる。
-    ただし、ループ全体の処理量はアクティブなルーム数に比例する。
+    Semaphore により同時 tick 数を _TICK_CONCURRENCY に制限し、Redis への
+    バースト集中によるロックタイムアウトと move ドロップを防ぐ。
     """
     global _tick_task
+    sem = asyncio.Semaphore(_TICK_CONCURRENCY)
+
+    async def _bounded_tick(room_id: str) -> None:
+        async with sem:
+            await _tick_one_room(room_id)
+
     while True:
         await asyncio.sleep(1)
 
@@ -113,7 +122,7 @@ async def _tick_loop() -> None:
             _tick_task = None
             return
 
-        await asyncio.gather(*(_tick_one_room(rid) for rid in playing_rooms))
+        await asyncio.gather(*(_bounded_tick(rid) for rid in playing_rooms))
 
 
 # ── Socket.io イベントハンドラ ──────────────────────────────────────
