@@ -1,3 +1,4 @@
+import { memo } from "react";
 import Image from "next/image";
 
 interface TileProps {
@@ -7,7 +8,7 @@ interface TileProps {
   switchWeight?: number;
 }
 
-export default function Tile({ cell, size = 40, switchState }: TileProps) {
+export default memo(function Tile({ cell, size = 40, switchState }: TileProps) {
   const s = { width: size, height: size };
   const inner = Math.round(size * 0.8);
 
@@ -54,4 +55,4 @@ export default function Tile({ cell, size = 40, switchState }: TileProps) {
         </div>
       </div>
     );
-}
+});

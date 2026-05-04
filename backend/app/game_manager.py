@@ -1,3 +1,4 @@
+import asyncio
 import random
 import string
 import time
@@ -46,6 +47,11 @@ def _expire_player_effects(status: PlayerStatus, now: float) -> None:
 class GameManager:
     def __init__(self, store: RedisStore) -> None:
         self._store = store
+        # Map data is immutable after creation — cache it in-process to avoid Redis GETs on every move.
+        self._map_cache: dict[str, MapData] = {}
+        # sid → room_id is immutable per session; cache in-process to skip Redis GET on every move.
+        # Socket.io pins each socket to one worker, so this is safe in multi-worker deployments.
+        self._sid_room_cache: dict[str, str] = {}
 
     # ── create_room ───────────────────────────────────────────
 
@@ -68,6 +74,8 @@ class GameManager:
                 "score": {"red": 0, "blue": 0},
             }
             if await self._store.create_room_atomic(room_id, state, map_data, sid):
+                self._map_cache[room_id] = map_data
+                self._sid_room_cache[sid] = room_id
                 break
 
         return room_id, state, map_data
@@ -97,10 +105,12 @@ class GameManager:
             }
             await self._store.save_state(room_id, state)
             await self._store.set_sid_room(sid, room_id)
+            self._sid_room_cache[sid] = room_id
 
             map_data = await self._store.load_map(room_id)
             if map_data is None:
                 raise GameError("room_not_found")
+            self._map_cache[room_id] = map_data
             return state, map_data
 
     # ── start_game ────────────────────────────────────────────
@@ -127,12 +137,12 @@ class GameManager:
     # ── move_player ───────────────────────────────────────────
 
     async def move_player(self, sid: str, direction: str) -> tuple[str, GameState] | None:
-        room_id = await self._store.get_sid_room(sid)
+        room_id = self._sid_room_cache.get(sid) or await self._store.get_sid_room(sid)
         if room_id is None:
             return None
 
         try:
-            async with self._store.lock(room_id, timeout=5.0):
+            async with self._store.lock(room_id, timeout=2.0, blocking_timeout=0.5):
                 state = await self._store.load_state(room_id)
                 if state is None or state["status"] != "playing":
                     return None
@@ -141,9 +151,12 @@ class GameManager:
                 if player is None:
                     return None
 
-                map_data = await self._store.load_map(room_id)
+                map_data = self._map_cache.get(room_id)
                 if map_data is None:
-                    return None
+                    map_data = await self._store.load_map(room_id)
+                    if map_data is None:
+                        return None
+                    self._map_cache[room_id] = map_data
 
                 now = time.time()
                 status = player["status"]
@@ -193,11 +206,12 @@ class GameManager:
 
     async def tick(self, room_id: str) -> GameState | None:
         async with self._store.lock(room_id, blocking_timeout=0.5):
-            state = await self._store.load_state(room_id)
+            state, end_time = await asyncio.gather(
+                self._store.load_state(room_id),
+                self._store.get_game_end_time(room_id),
+            )
             if state is None or state["status"] != "playing":
                 return None
-
-            end_time = await self._store.get_game_end_time(room_id)
             if end_time is None:
                 return None
 
@@ -222,6 +236,10 @@ class GameManager:
 
             if respawning:
                 map_data = await self._store.load_map(room_id)
+                if map_data is not None:
+                    self._map_cache[room_id] = map_data
+                else:
+                    self._map_cache.pop(room_id, None)
                 if map_data is None:
                     # マップ取得失敗 → 次 tick で再試行
                     still_waiting.extend(respawning)
@@ -250,14 +268,11 @@ class GameManager:
     # ── disconnect ────────────────────────────────────────────
 
     async def disconnect(self, sid: str) -> tuple[str | None, GameState | None]:
-        room_id = await self._store.get_sid_room(sid)
+        room_id = self._sid_room_cache.pop(sid, None) or await self._store.get_sid_room(sid)
         await self._store.del_sid_room(sid)
 
         if room_id is None:
             return None, None
-
-        if not await self._store.room_exists(room_id):
-            return room_id, None
 
         remaining: GameState | None = None
 
@@ -270,6 +285,7 @@ class GameManager:
 
             if not state["players"]:
                 await self._store.delete_room(room_id)
+                self._map_cache.pop(room_id, None)
                 remaining = None
             else:
                 if state["host"] == sid and state["status"] == "waiting":
@@ -282,7 +298,7 @@ class GameManager:
     # ── get_room_id ───────────────────────────────────────────
 
     async def get_room_id(self, sid: str) -> str | None:
-        return await self._store.get_sid_room(sid)
+        return self._sid_room_cache.get(sid) or await self._store.get_sid_room(sid)
 
     # ── helpers ───────────────────────────────────────────────
 

@@ -1,5 +1,6 @@
-import json
 from typing import Optional
+
+import orjson
 
 import redis.asyncio as aioredis
 
@@ -13,7 +14,10 @@ SID_TTL  = 3600   # 1 hour - sid→room_id セッションマッピング
 
 class RedisStore:
     def __init__(self, url: str) -> None:
-        self._client: aioredis.Redis = aioredis.from_url(url, decode_responses=True)
+        # decode_responses=False: GET は bytes を返す。
+        # orjson.loads は bytes を直接受け取れるため str へのデコードが不要になり高速。
+        # str が必要なメソッド (get_sid_room 等) は個別に .decode() する。
+        self._client: aioredis.Redis = aioredis.from_url(url, decode_responses=False)
 
     @property
     def client(self) -> aioredis.Redis:
@@ -33,7 +37,7 @@ class RedisStore:
         """
         # SET NX で room_id の唯一性を保証
         room_set = await self._client.set(
-            f"room:{room_id}", json.dumps(state), nx=True, ex=ROOM_TTL
+            f"room:{room_id}", orjson.dumps(state), nx=True, ex=ROOM_TTL
         )
         if not room_set:
             return False
@@ -41,7 +45,7 @@ class RedisStore:
         # 成功したら map と sid をパイプラインで一括書き込み
         # (transaction=False: MULTI/EXEC を使わず RTT を 1 回に圧縮)
         async with self._client.pipeline(transaction=False) as pipe:
-            pipe.set(f"map:{room_id}", json.dumps(map_data), ex=MAP_TTL)
+            pipe.set(f"map:{room_id}", orjson.dumps(map_data), ex=MAP_TTL)
             pipe.set(f"sid:{sid}", room_id, ex=SID_TTL)
             await pipe.execute()
 
@@ -49,12 +53,12 @@ class RedisStore:
 
     async def save_state(self, room_id: str, state: GameState) -> None:
         await self._client.set(
-            f"room:{room_id}", json.dumps(state), ex=ROOM_TTL
+            f"room:{room_id}", orjson.dumps(state), ex=ROOM_TTL
         )
 
     async def load_state(self, room_id: str) -> Optional[GameState]:
         raw = await self._client.get(f"room:{room_id}")
-        return json.loads(raw) if raw else None
+        return orjson.loads(raw) if raw else None
 
     async def room_exists(self, room_id: str) -> bool:
         return bool(await self._client.exists(f"room:{room_id}"))
@@ -63,12 +67,12 @@ class RedisStore:
 
     async def save_map(self, room_id: str, map_data: MapData) -> None:
         await self._client.set(
-            f"map:{room_id}", json.dumps(map_data), ex=MAP_TTL
+            f"map:{room_id}", orjson.dumps(map_data), ex=MAP_TTL
         )
 
     async def load_map(self, room_id: str) -> Optional[MapData]:
         raw = await self._client.get(f"map:{room_id}")
-        return json.loads(raw) if raw else None
+        return orjson.loads(raw) if raw else None
 
     # ── SID ↔ Room ────────────────────────────────────────────
 
@@ -76,7 +80,8 @@ class RedisStore:
         await self._client.set(f"sid:{sid}", room_id, ex=SID_TTL)
 
     async def get_sid_room(self, sid: str) -> Optional[str]:
-        return await self._client.get(f"sid:{sid}")
+        raw = await self._client.get(f"sid:{sid}")
+        return raw.decode() if raw else None
 
     async def del_sid_room(self, sid: str) -> None:
         await self._client.delete(f"sid:{sid}")
@@ -90,7 +95,7 @@ class RedisStore:
 
     async def get_game_end_time(self, room_id: str) -> Optional[float]:
         raw = await self._client.get(f"game_end:{room_id}")
-        return float(raw) if raw else None
+        return float(raw.decode()) if raw else None
 
     # ── Playing Rooms Set (Fix 1) ─────────────────────────────
 
@@ -102,7 +107,7 @@ class RedisStore:
         await self._client.srem("playing_rooms", room_id)
 
     async def get_playing_rooms(self) -> set[str]:
-        return await self._client.smembers("playing_rooms")
+        return {m.decode() for m in await self._client.smembers("playing_rooms")}
 
     # ── Cleanup ───────────────────────────────────────────────
 
