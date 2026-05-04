@@ -131,7 +131,7 @@ export default function Board({
             height: tileSize,
           }}
         >
-          <PlayerComponent player={player} isBlinded={false} />
+          <PlayerComponent player={player} />
         </div>
       ))}
 
@@ -145,7 +145,7 @@ export default function Board({
           height: tileSize,
         }}
       >
-        <PlayerComponent player={myPlayer} isBlinded={isBlinded} />
+        <PlayerComponent player={myPlayer} />
       </div>
 
       {/* フォグオーバーレイ: 自分の周囲2マス以外を黒で覆う */}
