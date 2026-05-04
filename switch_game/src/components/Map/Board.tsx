@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useMemo, useRef } from "react";
 import { MapData, Player, ItemData } from "@/types/game";
 import Tile from "./Tile";
 import PlayerComponent from "./Player";
@@ -34,6 +34,25 @@ function useTileSize(rows: number): number {
   return tileSize;
 }
 
+/**
+ * update_state のたびに switches は新規オブジェクトとして届く。
+ * 値が変わっていないのに参照が変わると useMemo の deps チェックが毎回 true になるため、
+ * 各エントリの値を比較して「実際に変化した時だけ」参照を更新する。
+ */
+function useStableSwitches(
+  switches: Record<string, "red" | "blue" | null> | undefined,
+) {
+  const ref = useRef(switches);
+  if (switches !== ref.current) {
+    const prev = ref.current ?? {};
+    const curr = switches ?? {};
+    if (Object.keys(curr).some((k) => curr[k] !== prev[k])) {
+      ref.current = switches;
+    }
+  }
+  return ref.current;
+}
+
 export default function Board({
   mapData,
   myPlayer,
@@ -44,10 +63,12 @@ export default function Board({
 }: BoardProps) {
   const tileSize = useTileSize(mapData.map.length);
   const cols = mapData.map[0].length;
+  const stableSwitches = useStableSwitches(switches);
 
-  return (
-    <div className="relative inline-block">
-      {/* タイルグリッド（背景） */}
+  // stableSwitches はスイッチの値が実際に変化した時のみ参照が更新される。
+  // プレイヤーが動くだけでは stableSwitches は変わらないため、タイルグリッドの再計算をスキップできる。
+  const tileGrid = useMemo(
+    () => (
       <div
         className="grid"
         style={{ gridTemplateColumns: `repeat(${cols}, ${tileSize}px)` }}
@@ -61,7 +82,9 @@ export default function Board({
                 cell={cell}
                 size={tileSize}
                 switchState={
-                  switchId && switches ? switches[switchId] : undefined
+                  switchId && stableSwitches
+                    ? stableSwitches[switchId]
+                    : undefined
                 }
                 switchWeight={
                   switchId ? mapData.switch_weights[switchId] : undefined
@@ -71,6 +94,14 @@ export default function Board({
           }),
         )}
       </div>
+    ),
+    [mapData, tileSize, stableSwitches, cols],
+  );
+
+  return (
+    <div className="relative inline-block">
+      {/* タイルグリッド（背景） */}
+      {tileGrid}
 
       {/* アイテム */}
       {items.map((item, i) => (
@@ -92,7 +123,7 @@ export default function Board({
       {otherPlayers.map((player, i) => (
         <div
           key={`other-${i}`}
-          className="absolute transition-all duration-150 pointer-events-none flex items-center justify-center"
+          className="absolute transition-all duration-150 pointer-events-none flex items-center justify-center opacity-50"
           style={{
             left: player.x * tileSize,
             top: player.y * tileSize,
@@ -100,7 +131,7 @@ export default function Board({
             height: tileSize,
           }}
         >
-          <PlayerComponent player={player} isBlinded={false} />
+          <PlayerComponent player={player} />
         </div>
       ))}
 
@@ -114,7 +145,7 @@ export default function Board({
           height: tileSize,
         }}
       >
-        <PlayerComponent player={myPlayer} isBlinded={isBlinded} />
+        <PlayerComponent player={myPlayer} />
       </div>
 
       {/* フォグオーバーレイ: 自分の周囲2マス以外を黒で覆う */}
