@@ -227,21 +227,26 @@ class _MapGenerator:
         return False
 
 
-# デフォルト設定での生成器
+# スポーン座標はマップサイズで決まる固定値なので、一度だけ計算して使い回す。
 _default_generator = _MapGenerator(width=21, height=11)
-_BASE_GRID, _SWITCHES, _SPAWNS, _ITEMS = _default_generator.generate()
+_SPAWNS: Dict = {
+    "red": _default_generator.red_spawns,
+    "blue": _default_generator.blue_spawns,
+}
 
 
-# NOTE: 以下を変えたい場合は、教えてください。
 def generate_map() -> MapData:
-    # _BASE_GRID の要素は不変のプリミティブ (int) なので shallow copy で十分。
-    # copy.deepcopy より 10〜50 倍高速。
+    """ルームごとにランダムなマップを生成する。毎回 _MapGenerator を新規作成することで
+    異なる壁配置・スイッチ配置のマップが得られる。"""
+    generator = _MapGenerator(width=21, height=11)
+    base_grid, switches, _spawns, _ = generator.generate()
+
     grid: list[list[Union[int, str]]] = cast(
         list[list[Union[int, str]]],
-        [list(row) for row in _BASE_GRID]
+        [list(row) for row in base_grid]
     )
     switch_weights: dict[str, int] = {}
-    for sid, (x, y, weight) in _SWITCHES.items():
+    for sid, (x, y, weight) in switches.items():
         grid[y][x] = sid
         switch_weights[sid] = weight
     return {"map": grid, "switch_weights": switch_weights}
@@ -255,22 +260,22 @@ def get_spawn_position(team: str, index: int) -> tuple[int, int]:
 _ITEM_NAMES: list[Literal["blind", "reverse", "jump"]] = ["blind", "reverse", "jump"]
 
 
-def get_initial_items() -> list[Item]:
+def get_initial_items(map_data: MapData) -> list[Item]:
     """ルーム作成時に呼ぶ。blind/reverse/jump を各1個ランダムな床タイルに配置して返す。
 
-    _BASE_GRID は全ルーム共通の静的マップなので、ルームごとに独立した乱数で位置を決める。
+    map_data には generate_map() が返した MapData を渡す。これにより、
+    ルームごとに生成されたマップ上の有効な床タイルにアイテムが配置される。
     """
-    switch_coords = {(x, y) for x, y, _ in _SWITCHES.values()}
+    grid = map_data["map"]
     spawn_coords = set(_SPAWNS.get("red", [])) | set(_SPAWNS.get("blue", []))
 
-    height = len(_BASE_GRID)
-    width = len(_BASE_GRID[0]) if height > 0 else 0
+    height = len(grid)
+    width = len(grid[0]) if height > 0 else 0
     valid: list[tuple[int, int]] = []
     for y in range(1, height - 1):
         for x in range(1, width - 1):
-            if (_BASE_GRID[y][x] == 0
-                    and (x, y) not in switch_coords
-                    and (x, y) not in spawn_coords):
+            # cell == 0 は床のみ（壁=1、スイッチ=文字列 を自動的に除外）
+            if grid[y][x] == 0 and (x, y) not in spawn_coords:
                 valid.append((x, y))
 
     positions: list[tuple[int, int]] = []
