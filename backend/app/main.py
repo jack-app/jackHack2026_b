@@ -95,7 +95,22 @@ async def _tick_one_room(room_id: str) -> None:
         await store.remove_playing_room(room_id)
 
 
-_TICK_CONCURRENCY = int(os.environ.get("TICK_CONCURRENCY", "8"))
+def _parse_tick_concurrency() -> int:
+    raw = os.environ.get("TICK_CONCURRENCY", "8")
+    try:
+        val = int(raw)
+    except ValueError:
+        raise ValueError(
+            f"TICK_CONCURRENCY must be a positive integer, got {raw!r}"
+        )
+    if val < 1:
+        raise ValueError(
+            f"TICK_CONCURRENCY must be >= 1, got {val}"
+        )
+    return val
+
+
+_TICK_CONCURRENCY = _parse_tick_concurrency()
 
 
 async def _tick_loop() -> None:

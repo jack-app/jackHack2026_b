@@ -14,7 +14,10 @@ SID_TTL  = 3600   # 1 hour - sid→room_id セッションマッピング
 
 class RedisStore:
     def __init__(self, url: str) -> None:
-        self._client: aioredis.Redis = aioredis.from_url(url, decode_responses=True)
+        # decode_responses=False: GET は bytes を返す。
+        # orjson.loads は bytes を直接受け取れるため str へのデコードが不要になり高速。
+        # str が必要なメソッド (get_sid_room 等) は個別に .decode() する。
+        self._client: aioredis.Redis = aioredis.from_url(url, decode_responses=False)
 
     @property
     def client(self) -> aioredis.Redis:
@@ -77,7 +80,8 @@ class RedisStore:
         await self._client.set(f"sid:{sid}", room_id, ex=SID_TTL)
 
     async def get_sid_room(self, sid: str) -> Optional[str]:
-        return await self._client.get(f"sid:{sid}")
+        raw = await self._client.get(f"sid:{sid}")
+        return raw.decode() if raw else None
 
     async def del_sid_room(self, sid: str) -> None:
         await self._client.delete(f"sid:{sid}")
@@ -91,7 +95,7 @@ class RedisStore:
 
     async def get_game_end_time(self, room_id: str) -> Optional[float]:
         raw = await self._client.get(f"game_end:{room_id}")
-        return float(raw) if raw else None
+        return float(raw.decode()) if raw else None
 
     # ── Playing Rooms Set (Fix 1) ─────────────────────────────
 
@@ -103,7 +107,7 @@ class RedisStore:
         await self._client.srem("playing_rooms", room_id)
 
     async def get_playing_rooms(self) -> set[str]:
-        return await self._client.smembers("playing_rooms")
+        return {m.decode() for m in await self._client.smembers("playing_rooms")}
 
     # ── Cleanup ───────────────────────────────────────────────
 
