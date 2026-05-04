@@ -1,4 +1,5 @@
 import asyncio
+import logging
 import os
 
 import orjson
@@ -86,6 +87,7 @@ async def _tick_one_room(room_id: str) -> None:
     try:
         state = await gm.tick(room_id)
     except Exception:
+        logging.exception("tick failed for room %s", room_id)
         return
     if state is None:
         await store.remove_playing_room(room_id)
