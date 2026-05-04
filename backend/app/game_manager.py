@@ -1,3 +1,4 @@
+import asyncio
 import random
 import string
 import time
@@ -66,7 +67,7 @@ class GameManager:
                 "status": "waiting",
                 "host": sid,
                 "players": {sid: {"team": "red", "x": x, "y": y, "status": _make_status()}},
-                "items": get_initial_items(map_data),
+                "items": get_initial_items(),
                 "item_respawn_queue": [],
                 "time_left": GAME_DURATION,
                 "switches": {sw: None for sw in map_data["switch_weights"]},
@@ -109,6 +110,7 @@ class GameManager:
             map_data = await self._store.load_map(room_id)
             if map_data is None:
                 raise GameError("room_not_found")
+            self._map_cache[room_id] = map_data
             return state, map_data
 
     # ── start_game ────────────────────────────────────────────
@@ -140,7 +142,7 @@ class GameManager:
             return None
 
         try:
-            async with self._store.lock(room_id, timeout=5.0):
+            async with self._store.lock(room_id, timeout=2.0, blocking_timeout=0.5):
                 state = await self._store.load_state(room_id)
                 if state is None or state["status"] != "playing":
                     return None
@@ -149,9 +151,12 @@ class GameManager:
                 if player is None:
                     return None
 
-                map_data = await self._store.load_map(room_id)
+                map_data = self._map_cache.get(room_id)
                 if map_data is None:
-                    return None
+                    map_data = await self._store.load_map(room_id)
+                    if map_data is None:
+                        return None
+                    self._map_cache[room_id] = map_data
 
                 now = time.time()
                 status = player["status"]
@@ -201,11 +206,12 @@ class GameManager:
 
     async def tick(self, room_id: str) -> GameState | None:
         async with self._store.lock(room_id, blocking_timeout=0.5):
-            state = await self._store.load_state(room_id)
+            state, end_time = await asyncio.gather(
+                self._store.load_state(room_id),
+                self._store.get_game_end_time(room_id),
+            )
             if state is None or state["status"] != "playing":
                 return None
-
-            end_time = await self._store.get_game_end_time(room_id)
             if end_time is None:
                 return None
 
@@ -268,9 +274,6 @@ class GameManager:
         if room_id is None:
             return None, None
 
-        if not await self._store.room_exists(room_id):
-            return room_id, None
-
         remaining: GameState | None = None
 
         async with self._store.lock(room_id):
@@ -282,6 +285,7 @@ class GameManager:
 
             if not state["players"]:
                 await self._store.delete_room(room_id)
+                self._map_cache.pop(room_id, None)
                 remaining = None
             else:
                 if state["host"] == sid and state["status"] == "waiting":
