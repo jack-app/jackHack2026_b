@@ -4,43 +4,25 @@ import { ItemType } from "@/types/game";
 
 import Image from "next/image";
 
-
 export interface ItemProps {
   type: ItemType;
 }
 
-export default function Item(_props: ItemProps) {
-  if (_props.type === "reverse") {
-    return <div className="w-8 h-8">
-      <Image
-      src="/item_arrow_2.png"
-      width={100}
-      height={100}
-      alt=""
-      />
-    </div>;
-  }
+const ITEM_SRC: Record<ItemType, string> = {
+  reverse: "/item_arrow_2.png",
+  blind: "/item_blined.png",
+  jump: "/item_jump.png",
+};
 
-  if (_props.type === "blinded") {
-    return <div className="w-8 h-8">
+export default function Item({ type }: ItemProps) {
+  return (
+    <div className="relative w-8 h-8 overflow-hidden">
       <Image
-      src="/item_blined.png"
-      width={100}
-      height={100}
-      alt=""
+        src={ITEM_SRC[type]}
+        fill
+        style={{ objectFit: "contain" }}
+        alt={type}
       />
-    </div>;
-  }
-
-  if (_props.type === "jump") {
-    return <div className="w-8 h-8" >
-      <Image
-      src="/item_jump.png"
-      width={100}
-      height={100}
-      alt=""
-      />
-    </div>;
-  
-  }
+    </div>
+  );
 }

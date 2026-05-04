@@ -35,10 +35,10 @@ const GAME_DURATION = 60;
 // ─── Item definitions ──────────────────────────────────────────────────────
 // Positions are floor tiles not occupied by switches
 const ITEM_DEFS = [
-  { name: "blinded", x: 5,  y: 1  },
+  { name: "blind", x: 5,  y: 1  },
   { name: "reverse", x: 15, y: 1  },
   { name: "jump",    x: 5,  y: 13 },
-  { name: "blinded", x: 15, y: 13 },
+  { name: "blind", x: 15, y: 13 },
   { name: "jump",    x: 3,  y: 7  },
   { name: "reverse", x: 17, y: 7  },
 ];
@@ -131,7 +131,7 @@ function applyEffect(roomId, room, targetSid, statusKey, duration) {
 function handleItemPickup(roomId, room, pickerSid, pickerTeam, item) {
   const opposing = pickerTeam === "red" ? "blue" : "red";
 
-  if (item.name === "blinded") {
+  if (item.name === "blind") {
     for (const [sid, p] of Object.entries(room.state.players)) {
       if (p.team === opposing) applyEffect(roomId, room, sid, "blinded", ITEM_EFFECT_DURATION);
     }

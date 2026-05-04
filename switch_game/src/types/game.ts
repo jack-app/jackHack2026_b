@@ -29,7 +29,7 @@ export interface MapData {
   switch_weights: Record<string, number>;
 }
 
-export type ItemType = "reverse" | "blinded" | "jump";
+export type ItemType = "reverse" | "blind" | "jump";
 
 export interface ItemData {
   name: ItemType;
