@@ -1,6 +1,7 @@
 import asyncio
 import os
 
+import orjson
 import redis.exceptions
 import socketio
 from dotenv import load_dotenv
@@ -17,6 +18,15 @@ _redis_url = os.environ.get("REDIS_URL", "redis://localhost:6379")
 
 store = RedisStore(_redis_url)
 
+
+class _OrjsonCodec:
+    """Drop-in json replacement for python-socketio using orjson (3-10x faster)."""
+    @staticmethod
+    def dumps(obj, **kwargs) -> str:
+        return orjson.dumps(obj).decode()
+    loads = staticmethod(orjson.loads)
+
+
 # AsyncRedisManager により sio.emit(..., room=X) がワーカーをまたいで届く
 mgr = socketio.AsyncRedisManager(_redis_url)
 
@@ -25,6 +35,7 @@ sio = socketio.AsyncServer(
     async_mode="asgi",
     cors_allowed_origins=_cors_origins,
     client_manager=mgr,
+    json=_OrjsonCodec,
 )
 socket_app = socketio.ASGIApp(sio, app)
 
@@ -68,17 +79,30 @@ def _ensure_tick_loop() -> None:
         _tick_task = asyncio.create_task(_tick_loop())
 
 
+async def _tick_one_room(room_id: str) -> None:
+    """Tick a single room. Runs concurrently with other rooms via asyncio.gather."""
+    claimed = await store.client.set(f"tick:{room_id}", "1", nx=True, px=900)
+    if not claimed:
+        return
+    try:
+        state = await gm.tick(room_id)
+    except Exception:
+        return
+    if state is None:
+        await store.remove_playing_room(room_id)
+        return
+    await sio.emit("update_state", _to_client_state(state), room=room_id)
+    if state["status"] == "finished":
+        await store.remove_playing_room(room_id)
+
+
 async def _tick_loop() -> None:
     """
-    Fix 1: per-worker の _worker_rooms を廃止し Redis Set playing_rooms を使う。
-    任意のワーカーが任意の playing room を tick できる。
-
-    Fix 2: gm.tick() の LockError を捕捉し、タスク自体が死なないようにする。
-
     tick gate (SET NX PX 900) により、同じルームを複数ワーカーが
     同一秒に二重 tick しないことを保証する。
 
     playing_rooms が空のとき自己停止する。次の start_game で _ensure_tick_loop() が再起動する。
+    全ルームを asyncio.gather で並列 tick することで、N ルームの処理時間を O(1) にする。
     """
     global _tick_task
     while True:
@@ -89,29 +113,7 @@ async def _tick_loop() -> None:
             _tick_task = None
             return
 
-        for room_id in playing_rooms:
-            # tick 権を原子的に取得（他がすでに取得済みならスキップ）
-            claimed = await store.client.set(
-                f"tick:{room_id}", "1", nx=True, px=900
-            )
-            if not claimed:
-                continue
-
-            try:
-                state = await gm.tick(room_id)
-            except redis.exceptions.LockError:
-                # Fix 2: 一時的なロック競合 — このサイクルをスキップ、次秒に再試行
-                continue
-            except Exception:
-                continue
-
-            if state is None:
-                await store.remove_playing_room(room_id)
-                continue
-
-            await sio.emit("update_state", _to_client_state(state), room=room_id)
-            if state["status"] == "finished":
-                await store.remove_playing_room(room_id)
+        await asyncio.gather(*(_tick_one_room(rid) for rid in playing_rooms))
 
 
 # ── Socket.io イベントハンドラ ──────────────────────────────────────
