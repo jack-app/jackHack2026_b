@@ -66,7 +66,7 @@ class GameManager:
                 "status": "waiting",
                 "host": sid,
                 "players": {sid: {"team": "red", "x": x, "y": y, "status": _make_status()}},
-                "items": get_initial_items(),
+                "items": get_initial_items(map_data),
                 "item_respawn_queue": [],
                 "time_left": GAME_DURATION,
                 "switches": {sw: None for sw in map_data["switch_weights"]},
