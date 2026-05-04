@@ -19,7 +19,7 @@ from app.map_generator import generate_map, get_initial_items, get_spawn_positio
 from app.models import GameError, GameState, Item, ItemRespawn, MapData, PlayerStatus
 from app.redis_store import RedisStore
 
-GAME_DURATION = 120
+GAME_DURATION = 60
 EFFECT_DURATION = 10.0   # seconds
 ITEM_RESPAWN_DELAY = 20.0  # seconds
 
