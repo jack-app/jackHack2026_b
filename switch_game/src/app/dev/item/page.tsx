@@ -13,7 +13,7 @@ export default function DevItemPage() {
         </div>
         <div className="flex flex-col items-center rounded-3xl border border-zinc-700 bg-white/5 p-6">
           <p className="mb-3 text-sm text-zinc-400">Blinded</p>
-          <Item type="blinded" />
+          <Item type="blind" />
         </div>
         <div className="flex flex-col items-center rounded-3xl border border-zinc-700 bg-white/5 p-6">
           <p className="mb-3 text-sm">Jump</p>
