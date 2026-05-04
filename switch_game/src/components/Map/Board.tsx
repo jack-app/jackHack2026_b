@@ -67,31 +67,36 @@ export default function Board({
 
   // stableSwitches はスイッチの値が実際に変化した時のみ参照が更新される。
   // プレイヤーが動くだけでは stableSwitches は変わらないため、タイルグリッドの再計算をスキップできる。
-  const tileGrid = useMemo(() => (
-    <div
-      className="grid"
-      style={{ gridTemplateColumns: `repeat(${cols}, ${tileSize}px)` }}
-    >
-      {mapData.map.map((row, y) =>
-        row.map((cell, x) => {
-          const switchId = typeof cell === "string" ? cell : undefined;
-          return (
-            <Tile
-              key={`${x}-${y}`}
-              cell={cell}
-              size={tileSize}
-              switchState={
-                switchId && stableSwitches ? stableSwitches[switchId] : undefined
-              }
-              switchWeight={
-                switchId ? mapData.switch_weights[switchId] : undefined
-              }
-            />
-          );
-        }),
-      )}
-    </div>
-  ), [mapData, tileSize, stableSwitches, cols]);
+  const tileGrid = useMemo(
+    () => (
+      <div
+        className="grid"
+        style={{ gridTemplateColumns: `repeat(${cols}, ${tileSize}px)` }}
+      >
+        {mapData.map.map((row, y) =>
+          row.map((cell, x) => {
+            const switchId = typeof cell === "string" ? cell : undefined;
+            return (
+              <Tile
+                key={`${x}-${y}`}
+                cell={cell}
+                size={tileSize}
+                switchState={
+                  switchId && stableSwitches
+                    ? stableSwitches[switchId]
+                    : undefined
+                }
+                switchWeight={
+                  switchId ? mapData.switch_weights[switchId] : undefined
+                }
+              />
+            );
+          }),
+        )}
+      </div>
+    ),
+    [mapData, tileSize, stableSwitches, cols],
+  );
 
   return (
     <div className="relative inline-block">
@@ -118,7 +123,7 @@ export default function Board({
       {otherPlayers.map((player, i) => (
         <div
           key={`other-${i}`}
-          className="absolute transition-all duration-150 pointer-events-none flex items-center justify-center"
+          className="absolute transition-all duration-150 pointer-events-none flex items-center justify-center opacity-50"
           style={{
             left: player.x * tileSize,
             top: player.y * tileSize,
