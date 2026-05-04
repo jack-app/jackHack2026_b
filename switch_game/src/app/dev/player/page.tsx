@@ -16,7 +16,6 @@ export default function DevPlayerPage() {
               y: 3,
               status: { blinded: true, reversed: true, can_jump: true },
             }}
-            isBlinded
           />
         </div>
         <div className="rounded-3xl border border-zinc-700 bg-white/5 p-6">
@@ -28,7 +27,6 @@ export default function DevPlayerPage() {
               y: 4,
               status: { blinded: false, reversed: false, can_jump: false },
             }}
-            isBlinded={false}
           />
         </div>
       </div>
