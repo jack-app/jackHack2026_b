@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useMemo } from "react";
 import { MapData, Player, ItemData } from "@/types/game";
 import Tile from "./Tile";
 import PlayerComponent from "./Player";
@@ -45,32 +45,38 @@ export default function Board({
   const tileSize = useTileSize(mapData.map.length);
   const cols = mapData.map[0].length;
 
+  // プレイヤー移動では switches は変化しないため、タイルグリッドの再生成をスキップできる。
+  // switches が変わる（スイッチ踏み込み）時のみ再計算する。
+  const tileGrid = useMemo(() => (
+    <div
+      className="grid"
+      style={{ gridTemplateColumns: `repeat(${cols}, ${tileSize}px)` }}
+    >
+      {mapData.map.map((row, y) =>
+        row.map((cell, x) => {
+          const switchId = typeof cell === "string" ? cell : undefined;
+          return (
+            <Tile
+              key={`${x}-${y}`}
+              cell={cell}
+              size={tileSize}
+              switchState={
+                switchId && switches ? switches[switchId] : undefined
+              }
+              switchWeight={
+                switchId ? mapData.switch_weights[switchId] : undefined
+              }
+            />
+          );
+        }),
+      )}
+    </div>
+  ), [mapData, tileSize, switches, cols]);
+
   return (
     <div className="relative inline-block">
       {/* タイルグリッド（背景） */}
-      <div
-        className="grid"
-        style={{ gridTemplateColumns: `repeat(${cols}, ${tileSize}px)` }}
-      >
-        {mapData.map.map((row, y) =>
-          row.map((cell, x) => {
-            const switchId = typeof cell === "string" ? cell : undefined;
-            return (
-              <Tile
-                key={`${x}-${y}`}
-                cell={cell}
-                size={tileSize}
-                switchState={
-                  switchId && switches ? switches[switchId] : undefined
-                }
-                switchWeight={
-                  switchId ? mapData.switch_weights[switchId] : undefined
-                }
-              />
-            );
-          }),
-        )}
-      </div>
+      {tileGrid}
 
       {/* アイテム */}
       {items.map((item, i) => (
