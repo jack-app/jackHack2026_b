@@ -1,4 +1,3 @@
-import asyncio
 import random
 import string
 import time
@@ -47,8 +46,6 @@ def _expire_player_effects(status: PlayerStatus, now: float) -> None:
 class GameManager:
     def __init__(self, store: RedisStore) -> None:
         self._store = store
-        # Map data is immutable after creation — cache it in-process to avoid Redis GETs on every move.
-        self._map_cache: dict[str, MapData] = {}
 
     # ── create_room ───────────────────────────────────────────
 
@@ -71,7 +68,6 @@ class GameManager:
                 "score": {"red": 0, "blue": 0},
             }
             if await self._store.create_room_atomic(room_id, state, map_data, sid):
-                self._map_cache[room_id] = map_data
                 break
 
         return room_id, state, map_data
@@ -105,7 +101,6 @@ class GameManager:
             map_data = await self._store.load_map(room_id)
             if map_data is None:
                 raise GameError("room_not_found")
-            self._map_cache[room_id] = map_data
             return state, map_data
 
     # ── start_game ────────────────────────────────────────────
@@ -137,7 +132,7 @@ class GameManager:
             return None
 
         try:
-            async with self._store.lock(room_id, timeout=2.0, blocking_timeout=0.5):
+            async with self._store.lock(room_id, timeout=5.0):
                 state = await self._store.load_state(room_id)
                 if state is None or state["status"] != "playing":
                     return None
@@ -146,12 +141,9 @@ class GameManager:
                 if player is None:
                     return None
 
-                map_data = self._map_cache.get(room_id)
+                map_data = await self._store.load_map(room_id)
                 if map_data is None:
-                    map_data = await self._store.load_map(room_id)
-                    if map_data is None:
-                        return None
-                    self._map_cache[room_id] = map_data
+                    return None
 
                 now = time.time()
                 status = player["status"]
@@ -201,12 +193,11 @@ class GameManager:
 
     async def tick(self, room_id: str) -> GameState | None:
         async with self._store.lock(room_id, blocking_timeout=0.5):
-            state, end_time = await asyncio.gather(
-                self._store.load_state(room_id),
-                self._store.get_game_end_time(room_id),
-            )
+            state = await self._store.load_state(room_id)
             if state is None or state["status"] != "playing":
                 return None
+
+            end_time = await self._store.get_game_end_time(room_id)
             if end_time is None:
                 return None
 
@@ -230,9 +221,7 @@ class GameManager:
                     still_waiting.append(pending)
 
             if respawning:
-                map_data = self._map_cache.get(room_id) or await self._store.load_map(room_id)
-                if map_data is not None:
-                    self._map_cache[room_id] = map_data
+                map_data = await self._store.load_map(room_id)
                 if map_data is None:
                     # マップ取得失敗 → 次 tick で再試行
                     still_waiting.extend(respawning)
@@ -267,6 +256,9 @@ class GameManager:
         if room_id is None:
             return None, None
 
+        if not await self._store.room_exists(room_id):
+            return room_id, None
+
         remaining: GameState | None = None
 
         async with self._store.lock(room_id):
@@ -278,7 +270,6 @@ class GameManager:
 
             if not state["players"]:
                 await self._store.delete_room(room_id)
-                self._map_cache.pop(room_id, None)
                 remaining = None
             else:
                 if state["host"] == sid and state["status"] == "waiting":

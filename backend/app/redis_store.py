@@ -1,6 +1,5 @@
+import json
 from typing import Optional
-
-import orjson
 
 import redis.asyncio as aioredis
 
@@ -34,7 +33,7 @@ class RedisStore:
         """
         # SET NX で room_id の唯一性を保証
         room_set = await self._client.set(
-            f"room:{room_id}", orjson.dumps(state), nx=True, ex=ROOM_TTL
+            f"room:{room_id}", json.dumps(state), nx=True, ex=ROOM_TTL
         )
         if not room_set:
             return False
@@ -42,7 +41,7 @@ class RedisStore:
         # 成功したら map と sid をパイプラインで一括書き込み
         # (transaction=False: MULTI/EXEC を使わず RTT を 1 回に圧縮)
         async with self._client.pipeline(transaction=False) as pipe:
-            pipe.set(f"map:{room_id}", orjson.dumps(map_data), ex=MAP_TTL)
+            pipe.set(f"map:{room_id}", json.dumps(map_data), ex=MAP_TTL)
             pipe.set(f"sid:{sid}", room_id, ex=SID_TTL)
             await pipe.execute()
 
@@ -50,12 +49,12 @@ class RedisStore:
 
     async def save_state(self, room_id: str, state: GameState) -> None:
         await self._client.set(
-            f"room:{room_id}", orjson.dumps(state), ex=ROOM_TTL
+            f"room:{room_id}", json.dumps(state), ex=ROOM_TTL
         )
 
     async def load_state(self, room_id: str) -> Optional[GameState]:
         raw = await self._client.get(f"room:{room_id}")
-        return orjson.loads(raw) if raw else None
+        return json.loads(raw) if raw else None
 
     async def room_exists(self, room_id: str) -> bool:
         return bool(await self._client.exists(f"room:{room_id}"))
@@ -64,12 +63,12 @@ class RedisStore:
 
     async def save_map(self, room_id: str, map_data: MapData) -> None:
         await self._client.set(
-            f"map:{room_id}", orjson.dumps(map_data), ex=MAP_TTL
+            f"map:{room_id}", json.dumps(map_data), ex=MAP_TTL
         )
 
     async def load_map(self, room_id: str) -> Optional[MapData]:
         raw = await self._client.get(f"map:{room_id}")
-        return orjson.loads(raw) if raw else None
+        return json.loads(raw) if raw else None
 
     # ── SID ↔ Room ────────────────────────────────────────────
 
